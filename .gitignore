@@ -1,0 +1,33 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Go build outputs
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go test and coverage
+*.test
+*.out
+coverage.out
+coverage.txt
+
+# Logs and temp files
+*.log
+tmp/
+
+# Tooling caches
+.air/
+
+# IDE/editor
+.idea/
+.vscode/
+.DS_Store
+image.bin
+certs/
