@@ -1,0 +1,20 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+*.tfvars.json
+.terraform.lock.hcl
+
+# Go
+/src/main
+/src/*.exe
+/src/*.test
+/src/vendor/
+
+# OS/IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.bak
