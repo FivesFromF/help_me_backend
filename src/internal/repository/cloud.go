@@ -10,8 +10,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
-	"github.com/aws/aws-sdk-go-v2/service/eventbridge/types"
+	ebtypes "github.com/aws/aws-sdk-go-v2/service/eventbridge/types"
 )
 
 type CloudRepository struct {
@@ -67,8 +68,8 @@ func (r *CloudRepository) CheckAccessSession(ctx context.Context, staffID, citiz
 
 	result, err := r.dbClient.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(r.tableName),
-		Key: map[string]types.AttributeValue{
-			"session_id": &types.AttributeValueMemberS{Value: sessionID},
+		Key: map[string]ddbtypes.AttributeValue{
+			"session_id": &ddbtypes.AttributeValueMemberS{Value: sessionID},
 		},
 	})
 	if err != nil {
@@ -97,7 +98,7 @@ func (r *CloudRepository) PublishEvent(ctx context.Context, detailType string, d
 	}
 
 	_, err = r.ebClient.PutEvents(ctx, &eventbridge.PutEventsInput{
-		Entries: []types.PutEventsRequestEntry{
+		Entries: []ebtypes.PutEventsRequestEntry{
 			{
 				Source:       aws.String("helpme.backend"),
 				DetailType:   aws.String(detailType),

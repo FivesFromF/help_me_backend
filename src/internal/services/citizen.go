@@ -52,7 +52,8 @@ func (s *CitizenServer) Register(
 		}
 	}
 
-	// 3. Create Citizen
+	// 3. Create Citizen (CCCD)
+	var cccd pgtype.Text
 	if req.Msg.CccdNumber != "" {
 		cccd = pgtype.Text{String: req.Msg.CccdNumber, Valid: true}
 	}
@@ -115,7 +116,8 @@ func (s *CitizenServer) VerifyIdentity(
 	fmt.Println("Verifying identity...")
 
 	var citizenID string
-	var nfcID, qrID pgtype.UUID
+	var method string
+	var qrID pgtype.UUID // Still need qrID for Scan if QR is used
 
 	// 1. Retrieve Row by ID
 	if req.Msg.GetNfcId() != "" {
@@ -127,6 +129,7 @@ func (s *CitizenServer) VerifyIdentity(
 			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("tag is not active"))
 		}
 		citizenID = tag.CitizenID.String()
+		method = "NFC"
 		_ = s.store.UpdateNFCLastUsed(ctx, tag.ID)
 	} else if req.Msg.GetQrId() != "" {
 		_ = qrID.Scan(req.Msg.GetQrId())
@@ -138,6 +141,7 @@ func (s *CitizenServer) VerifyIdentity(
 			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("QR is not active"))
 		}
 		citizenID = qr.CitizenID.String()
+		method = "QR"
 		_ = s.store.UpdateQRLastUsed(ctx, qr.ID)
 	} else {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("identifier required"))
@@ -160,7 +164,7 @@ func (s *CitizenServer) VerifyIdentity(
 	_ = s.cloudRepo.PublishEvent(ctx, "victim.identified", map[string]string{
 		"staff_id":   staffID,
 		"citizen_id": citizenID,
-		"method":     req.Msg.VerificationMethod.String(),
+		"method":     method,
 		"full_name":  citizen.FullName,
 	})
 

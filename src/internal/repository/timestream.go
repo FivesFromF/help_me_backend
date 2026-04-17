@@ -54,7 +54,7 @@ func (s *TimestreamStore) WriteAuditLog(
 		MeasureValue:     ptr(reason),
 		MeasureValueType: types.MeasureValueTypeVarchar,
 		Time:             ptr(currentTime),
-		TimeUnit:         types.TimeUnitMillis,
+		TimeUnit:         types.TimeUnitMilliseconds,
 	}
 
 	_, err := s.client.WriteRecords(ctx, &timestreamwrite.WriteRecordsInput{

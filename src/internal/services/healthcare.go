@@ -10,12 +10,11 @@ import (
 
 	helpmev1 "github.com/fivesfromf/helpme/internal/gen/v1"
 	"github.com/fivesfromf/helpme/internal/repository"
-	"github.com/fivesfromf/helpme/internal/repository/sqlc"
 )
 
 type HealthcareServer struct {
 	store           *repository.Store
-	timestreamStore *repository.TimestreamStore # Deprecated
+	timestreamStore *repository.TimestreamStore // Deprecated
 	cloudRepo       *repository.CloudRepository
 }
 
@@ -44,7 +43,7 @@ func (s *HealthcareServer) GetData(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to verify access session: %w", err))
 	}
 	if !hasAccess {
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("no active identification session found for this victim (Identification expires in 24h)"))
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("no active identification session found for this victim"))
 	}
 
 	// 2. Fetch Data from RDS

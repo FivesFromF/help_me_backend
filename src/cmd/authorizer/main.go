@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 
@@ -42,7 +40,7 @@ func HandleRequest(ctx context.Context, request events.APIGatewayV2CustomAuthori
 	// WARNING: Signature verification should be added before production.
 	
 	claims := jwt.MapClaims{}
-	token, _, err := new(jwt.Parser).ParseUnverified(tokenStr, claims)
+	_, _, err := new(jwt.Parser).ParseUnverified(tokenStr, claims)
 	if err != nil {
 		return AuthorizerResponse{IsAuthorized: false}, nil
 	}
