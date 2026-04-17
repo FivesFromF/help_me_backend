@@ -93,13 +93,13 @@ func (s *CitizenServer) Register(
 
 	// 6. Publish Audit Events
 	_ = s.cloudRepo.PublishEvent(ctx, "citizen.created", map[string]string{
-		"citizen_id": citizen.ID.String(),
+		"citizen_id": utils.UUIDToString(citizen.ID),
 		"action":     "CREATE",
 		"reason":     "New registration",
 	})
 
 	_ = s.cloudRepo.PublishEvent(ctx, "consent.granted", map[string]string{
-		"citizen_id": citizen.ID.String(),
+		"citizen_id": utils.UUIDToString(citizen.ID),
 		"action":     "CONSENT",
 		"reason":     "Standard terms agreement",
 	})
@@ -128,7 +128,7 @@ func (s *CitizenServer) VerifyIdentity(
 		if tag.Status != "ACTIVE" {
 			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("tag is not active"))
 		}
-		citizenID = tag.CitizenID.String()
+		citizenID = utils.UUIDToString(tag.CitizenID)
 		method = "NFC"
 		_ = s.store.UpdateNFCLastUsed(ctx, tag.ID)
 	} else if req.Msg.GetQrId() != "" {
@@ -140,7 +140,7 @@ func (s *CitizenServer) VerifyIdentity(
 		if qr.Status != "ACTIVE" {
 			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("QR is not active"))
 		}
-		citizenID = qr.CitizenID.String()
+		citizenID = utils.UUIDToString(qr.CitizenID)
 		method = "QR"
 		_ = s.store.UpdateQRLastUsed(ctx, qr.ID)
 	} else {
@@ -202,7 +202,7 @@ func (s *CitizenServer) SearchByFace(
 
 	res := &helpmev1.SearchByFaceResponse{
 		Profile: &helpmev1.CitizenProfile{
-			Id:         bestMatch.ID.String(),
+			Id:         utils.UUIDToString(bestMatch.ID),
 			FullName:   bestMatch.FullName,
 			CccdNumber: bestMatch.CccdNumber.String,
 			AvatarUrl:  bestMatch.AvatarUrl.String,
@@ -216,7 +216,7 @@ func (s *CitizenServer) SearchByFace(
 	staffID := "unknown" // Extract from context/authorizer in production
 	_ = s.cloudRepo.PublishEvent(ctx, "victim.identified", map[string]string{
 		"staff_id":   staffID,
-		"citizen_id": bestMatch.ID.String(),
+		"citizen_id": utils.UUIDToString(bestMatch.ID),
 		"method":     "FACE_SEARCH",
 		"full_name":  bestMatch.FullName,
 	})
@@ -227,7 +227,7 @@ func (s *CitizenServer) SearchByFace(
 // Helper Mappings
 func (s *CitizenServer) mapCitizenToProfile(c sqlc.Citizens) *helpmev1.CitizenProfile {
 	return &helpmev1.CitizenProfile{
-		Id:          c.ID.String(),
+		Id:          utils.UUIDToString(c.ID),
 		FullName:    c.FullName,
 		DateOfBirth: c.DateOfBirth.Time.Format("2006-01-02"),
 		Gender:      c.Gender.String,
@@ -242,7 +242,7 @@ func (s *CitizenServer) mapCitizenToProfile(c sqlc.Citizens) *helpmev1.CitizenPr
 
 func (s *CitizenServer) mapMedicalRecord(m sqlc.MedicalRecords) *helpmev1.MedicalRecord {
 	return &helpmev1.MedicalRecord{
-		CitizenId:           m.CitizenID.String(),
+		CitizenId:           utils.UUIDToString(m.CitizenID),
 		DistinguishingMarks: m.DistinguishingMarks.String,
 		BloodGroup:          m.BloodGroup.String,
 		Allergies:           m.Allergies,
@@ -322,7 +322,7 @@ func (s *CitizenServer) UpdateProfile(ctx context.Context, req *connect.Request[
 
 	// Publish Audit Event (CRUD Update)
 	_ = s.cloudRepo.PublishEvent(ctx, "citizen.updated", map[string]string{
-		"citizen_id": citizen.ID.String(),
+		"citizen_id": utils.UUIDToString(citizen.ID),
 		"action":     "UPDATE",
 		"reason":     "Profile update",
 	})

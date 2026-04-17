@@ -9,6 +9,7 @@ import (
 	helpmev1 "github.com/fivesfromf/helpme/internal/gen/v1"
 	"github.com/fivesfromf/helpme/internal/repository"
 	"github.com/fivesfromf/helpme/internal/repository/sqlc"
+	"github.com/fivesfromf/helpme/internal/utils"
 )
 
 type EmergencyServer struct {
@@ -43,7 +44,7 @@ func (s *EmergencyServer) ReportEmergency(
 
 	return connect.NewResponse(&helpmev1.ReportEmergencyResponse{
 		Report: &helpmev1.EmergencyReport{
-			Id:       report.ID.String(),
+			Id:       utils.UUIDToString(report.ID),
 			Status:   report.Status,
 		},
 	}), nil

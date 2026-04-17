@@ -10,6 +10,7 @@ import (
 
 	helpmev1 "github.com/fivesfromf/helpme/internal/gen/v1"
 	"github.com/fivesfromf/helpme/internal/repository"
+	"github.com/fivesfromf/helpme/internal/utils"
 )
 
 type HealthcareServer struct {
@@ -62,7 +63,7 @@ func (s *HealthcareServer) GetData(
 
 	return connect.NewResponse(&helpmev1.GetMedicalRecordResponse{
 		Record: &helpmev1.MedicalRecord{
-			CitizenId:           record.CitizenID.String(),
+			CitizenId:           utils.UUIDToString(record.CitizenID),
 			DistinguishingMarks: record.DistinguishingMarks.String,
 			BloodGroup:          record.BloodGroup.String,
 			Allergies:           record.Allergies,
