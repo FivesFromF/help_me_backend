@@ -1,0 +1,19 @@
+version: "2"
+sql:
+  - schema: "api/schema/schema.sql"
+    queries: "api/schema/query.sql"
+    engine: "postgresql"
+    gen:
+      go:
+        package: "sqlc"
+        out: "internal/repository/sqlc"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_prepared_queries: true
+        emit_interface: true
+        emit_exact_table_names: true
+        overrides:
+          - db_type: "vector"
+            go_type: "github.com/pgvector/pgvector-go.Vector"
+          - db_type: "date"
+            go_type: "time.Time"

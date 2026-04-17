@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package helpme.v1;
+
+option go_package = "github.com/fivesfromf/helpme/internal/gen/v1;helpmev1";
+
+import "google/protobuf/timestamp.proto";
+
+service EmergencyService {
+  rpc ReportEmergency(ReportEmergencyRequest) returns (ReportEmergencyResponse);
+  rpc GetEmergencyHistory(GetEmergencyHistoryRequest) returns (GetEmergencyHistoryResponse);
+}
+
+message EmergencyReport {
+  string id = 1;
+  string reporter_id = 2;
+  string victim_id = 3;
+  string location_lat = 4;
+  string location_lon = 5;
+  string status = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message ReportEmergencyRequest {
+  string reporter_id = 1;
+  string victim_id = 2; // Can be empty if victim is not identified
+  string location_lat = 3;
+  string location_lon = 4;
+  string situation_description = 5;
+}
+
+message ReportEmergencyResponse {
+  EmergencyReport report = 1;
+}
+
+message GetEmergencyHistoryRequest {
+  string user_id = 1;
+}
+
+message GetEmergencyHistoryResponse {
+  repeated EmergencyReport reports = 1;
+}
