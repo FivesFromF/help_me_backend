@@ -236,6 +236,7 @@ variable "timestream_table" {}
 variable "timestream_db_name" { default = "" } # Deprecated
 variable "timestream_table_name" { default = "" } # Deprecated
 variable "event_bus_name" {}
+variable "event_bus_arn" {}
 variable "read_container_image" {}
 variable "write_container_image" {}
 variable "session_table_name" {}
