@@ -40,13 +40,17 @@ module "lambda" {
   source = "./modules/lambda"
 
   project_name       = var.project_name
-  event_bus_arn      = module.eventbridge.bus_arn
   sns_topic_arn      = module.sns.topic_arn
   database_url       = "postgres://adminuser:${var.db_password}@${module.rds.cluster_endpoint}:5432/helpme"
   sessions_table_arn  = module.dynamodb.sessions_table_arn
   sessions_table_name = module.dynamodb.sessions_table_name
   audit_table_arn     = module.dynamodb.audit_table_arn
   audit_table_name    = module.dynamodb.audit_table_name
+
+  # Dual-bus routing for workers
+  audit_system_rule_arn    = module.eventbridge.audit_system_rule_arn
+  audit_emergency_rule_arn   = module.eventbridge.audit_emergency_rule_arn
+  identification_rule_arn  = module.eventbridge.identification_rule_arn
 }
 
 module "auth" {
@@ -73,8 +77,13 @@ module "ecs" {
   subnet_ids            = module.vpc.public_subnets
   read_container_image     = var.read_container_image
   write_container_image    = var.write_container_image
-  event_bus_name        = module.eventbridge.bus_name
-  event_bus_arn         = module.eventbridge.bus_arn
+  
+  # Inject both buses
+  system_bus_name       = module.eventbridge.system_bus_name
+  system_bus_arn        = module.eventbridge.system_bus_arn
+  emergency_bus_name    = module.eventbridge.emergency_bus_name
+  emergency_bus_arn     = module.eventbridge.emergency_bus_arn
+
   sessions_table_name   = module.dynamodb.sessions_table_name
   sessions_table_arn    = module.dynamodb.sessions_table_arn
   db_cluster_endpoint   = module.rds.cluster_endpoint

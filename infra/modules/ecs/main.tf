@@ -85,7 +85,8 @@ resource "aws_iam_policy" "ecs_cloud_access" {
       {
         Action   = "events:PutEvents"
         Effect   = "Allow"
-        Resource = var.event_bus_arn
+        # Grant access to BOTH buses
+        Resource = [var.system_bus_arn, var.emergency_bus_arn]
       },
       {
         Action   = [
@@ -189,8 +190,12 @@ resource "aws_ecs_express_gateway_service" "write" {
       value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
     }
     environment {
-      name  = "EVENT_BUS_NAME"
-      value = var.event_bus_name
+      name  = "CORE_SYSTEM_BUS_NAME"
+      value = var.system_bus_name
+    }
+    environment {
+      name  = "EMERGENCY_BUS_NAME"
+      value = var.emergency_bus_name
     }
     environment {
       name  = "ACCESS_SESSIONS_TABLE"
@@ -226,8 +231,12 @@ resource "aws_ecs_express_gateway_service" "read" {
       value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
     }
     environment {
-      name  = "EVENT_BUS_NAME"
-      value = var.event_bus_name
+      name  = "CORE_SYSTEM_BUS_NAME"
+      value = var.system_bus_name
+    }
+    environment {
+      name  = "EMERGENCY_BUS_NAME"
+      value = var.emergency_bus_name
     }
     environment {
       name  = "ACCESS_SESSIONS_TABLE"
@@ -250,8 +259,10 @@ resource "aws_ecs_express_gateway_service" "read" {
 variable "project_name" {}
 variable "vpc_id" {}
 variable "subnet_ids" {}
-variable "event_bus_name" {}
-variable "event_bus_arn" {}
+variable "system_bus_name" {}
+variable "system_bus_arn" {}
+variable "emergency_bus_name" {}
+variable "emergency_bus_arn" {}
 variable "read_container_image" {}
 variable "write_container_image" {}
 variable "sessions_table_name" {}

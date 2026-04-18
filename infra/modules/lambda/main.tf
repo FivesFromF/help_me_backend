@@ -67,12 +67,22 @@ resource "aws_lambda_function" "audit_worker" {
   }
 }
 
-resource "aws_lambda_permission" "audit_eventbridge" {
-  statement_id  = "AllowEventBridgeInvoke"
+# Permission to be invoked by System Bus Audit Rule
+resource "aws_lambda_permission" "audit_system" {
+  statement_id  = "AllowSystemBusInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.audit_worker.function_name
   principal     = "events.amazonaws.com"
-  source_arn    = var.event_bus_arn
+  source_arn    = var.audit_system_rule_arn
+}
+
+# Permission to be invoked by Emergency Bus Audit Rule
+resource "aws_lambda_permission" "audit_emergency" {
+  statement_id  = "AllowEmergencyBusInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.audit_worker.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = var.audit_emergency_rule_arn
 }
 
 # Notification Worker: EventBridge -> SNS
@@ -131,11 +141,11 @@ resource "aws_lambda_function" "notification_worker" {
 }
 
 resource "aws_lambda_permission" "notification_eventbridge" {
-  statement_id  = "AllowEventBridgeInvoke"
+  statement_id  = "AllowEmergencyBusInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.notification_worker.function_name
   principal     = "events.amazonaws.com"
-  source_arn    = var.event_bus_arn
+  source_arn    = var.identification_rule_arn
 }
 
 # Grant Permission Worker: EventBridge -> DynamoDB
@@ -193,23 +203,27 @@ resource "aws_lambda_function" "grant_permission_worker" {
 }
 
 resource "aws_lambda_permission" "grant_eventbridge" {
-  statement_id  = "AllowEventBridgeInvoke"
+  statement_id  = "AllowEmergencyBusInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.grant_permission_worker.function_name
   principal     = "events.amazonaws.com"
-  source_arn    = var.event_bus_arn
+  source_arn    = var.identification_rule_arn
 }
 
 # --- Variables & Outputs ---
 
 variable "project_name" {}
-variable "event_bus_arn" {}
 variable "sns_topic_arn" {}
 variable "database_url" {}
 variable "sessions_table_arn" {}
 variable "sessions_table_name" {}
 variable "audit_table_arn" {}
 variable "audit_table_name" {}
+
+# Bus ARNs for dual-permission
+variable "audit_system_rule_arn" {}
+variable "audit_emergency_rule_arn" {}
+variable "identification_rule_arn" {}
 
 output "audit_lambda_arn" {
   value = aws_lambda_function.audit_worker.arn
