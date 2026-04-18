@@ -11,10 +11,20 @@ func UUIDToString(uuid pgtype.UUID) string {
 	if !uuid.Valid {
 		return ""
 	}
-	return fmt.Sprintf("%x-%x-%x-%x-%x", 
-		uuid.Bytes[0:4], 
-		uuid.Bytes[4:6], 
-		uuid.Bytes[6:8], 
-		uuid.Bytes[8:10], 
+	return fmt.Sprintf("%x-%x-%x-%x-%x",
+		uuid.Bytes[0:4],
+		uuid.Bytes[4:6],
+		uuid.Bytes[6:8],
+		uuid.Bytes[8:10],
 		uuid.Bytes[10:16])
+}
+
+// StringToUUID receives a UUID formatted string and returns a pgtype.UUID block
+func StringToUUID(s string) (pgtype.UUID, error) {
+	var uuid pgtype.UUID
+	err := uuid.Scan(s)
+	if err != nil {
+		return uuid, err
+	}
+	return uuid, nil
 }

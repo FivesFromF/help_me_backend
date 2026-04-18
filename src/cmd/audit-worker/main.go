@@ -18,7 +18,7 @@ func init() {
 	ctx := context.Background()
 	dbName := os.Getenv("TIMESTREAM_DATABASE")
 	tableName := os.Getenv("TIMESTREAM_TABLE")
-	
+
 	var err error
 	tsStore, err = repository.NewTimestreamStore(ctx, dbName, tableName)
 	if err != nil {

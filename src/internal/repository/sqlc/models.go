@@ -37,6 +37,19 @@ type EmergencyReports struct {
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 }
 
+type HealthcareStaff struct {
+	ID           pgtype.UUID        `json:"id"`
+	FullName     string             `json:"full_name"`
+	Email        string             `json:"email"`
+	PasswordHash string             `json:"password_hash"`
+	HospitalName pgtype.Text        `json:"hospital_name"`
+	Role         string             `json:"role"`
+	Status       string             `json:"status"`
+	Phone        pgtype.Text        `json:"phone"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
 type MedicalRecords struct {
 	CitizenID           pgtype.UUID        `json:"citizen_id"`
 	DistinguishingMarks pgtype.Text        `json:"distinguishing_marks"`
@@ -56,6 +69,12 @@ type NfcTags struct {
 	CitizenID    pgtype.UUID        `json:"citizen_id"`
 	RegisteredAt pgtype.Timestamptz `json:"registered_at"`
 	LastUsedAt   pgtype.Timestamptz `json:"last_used_at"`
+}
+
+type Otps struct {
+	Phone     string             `json:"phone"`
+	Code      string             `json:"code"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 }
 
 type QrCodes struct {

@@ -17,10 +17,10 @@ var cloudRepo *repository.CloudRepository
 func init() {
 	ctx := context.Background()
 	ddbTable := os.Getenv("ACCESS_SESSIONS_TABLE")
-	
+
 	var err error
 	// We only need the DynamoDB part of CloudRepository here
-	cloudRepo, err = repository.NewCloudRepository(ctx, ddbTable, "dummy-bus")
+	cloudRepo, err = repository.NewCloudRepository(ctx, ddbTable, "dummy-system-bus", "dummy-emergency-bus")
 	if err != nil {
 		log.Fatalf("Failed to initialize Cloud repository: %v", err)
 	}

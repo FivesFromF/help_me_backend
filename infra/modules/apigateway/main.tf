@@ -15,11 +15,12 @@ resource "aws_apigatewayv2_authorizer" "auth" {
   api_id           = aws_apigatewayv2_api.main.id
   authorizer_type  = "REQUEST"
   authorizer_uri   = var.authorizer_uri
-  identity_sources = ["$request.header.Authorization"]
+  # Removing identity_sources to allow requests lacking Authentication headers to hit the Lambda Authorizer.
   name             = "${var.project_name}-authorizer"
-  
+
   authorizer_payload_format_version = "2.0"
   enable_simple_responses           = true
+  authorizer_result_ttl_in_seconds  = 0
 }
 
 # --- Integrations ---
@@ -27,7 +28,7 @@ resource "aws_apigatewayv2_authorizer" "auth" {
 resource "aws_apigatewayv2_integration" "write" {
   api_id           = aws_apigatewayv2_api.main.id
   integration_type = "HTTP_PROXY"
-  integration_uri  = var.write_service_endpoint
+  integration_uri  = "http://${var.write_service_endpoint}/{proxy}"
   integration_method = "ANY"
   
   request_parameters = {
@@ -38,7 +39,7 @@ resource "aws_apigatewayv2_integration" "write" {
 resource "aws_apigatewayv2_integration" "read" {
   api_id           = aws_apigatewayv2_api.main.id
   integration_type = "HTTP_PROXY"
-  integration_uri  = var.read_service_endpoint
+  integration_uri  = "http://${var.read_service_endpoint}/{proxy}"
   integration_method = "ANY"
 
   request_parameters = {
@@ -65,6 +66,8 @@ resource "aws_apigatewayv2_route" "read_proxy" {
   authorization_type = "CUSTOM"
   authorizer_id      = aws_apigatewayv2_authorizer.auth.id
 }
+
+# Removed /auth-public. Traffic funnels through /write-service/ again.
 
 variable "project_name" {}
 variable "write_service_endpoint" {}

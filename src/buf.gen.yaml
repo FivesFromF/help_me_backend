@@ -1,8 +1,0 @@
-version: v1
-plugins:
-  - name: go
-    out: .
-    opt: module=github.com/fivesfromf/helpme
-  - name: connect-go
-    out: .
-    opt: module=github.com/fivesfromf/helpme

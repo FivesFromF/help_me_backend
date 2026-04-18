@@ -174,7 +174,7 @@ resource "aws_cloudwatch_log_group" "express" {
 
 # WRITE Service
 resource "aws_ecs_express_gateway_service" "write" {
-  service_name            = "${var.project_name}-write"
+  service_name            = "${var.project_name}-write-v3"
   execution_role_arn      = aws_iam_role.ecs_execution_role.arn
   infrastructure_role_arn = aws_iam_role.ecs_infrastructure_role.arn
 
@@ -186,20 +186,20 @@ resource "aws_ecs_express_gateway_service" "write" {
     container_port = 8080
     
     environment {
-      name  = "DATABASE_URL"
-      value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
+      name  = "ACCESS_SESSIONS_TABLE"
+      value = var.sessions_table_name
     }
     environment {
       name  = "CORE_SYSTEM_BUS_NAME"
       value = var.system_bus_name
     }
     environment {
-      name  = "EMERGENCY_BUS_NAME"
-      value = var.emergency_bus_name
+      name  = "DATABASE_URL"
+      value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
     }
     environment {
-      name  = "ACCESS_SESSIONS_TABLE"
-      value = var.sessions_table_name
+      name  = "EMERGENCY_BUS_NAME"
+      value = var.emergency_bus_name
     }
     environment {
       name  = "SYSTEM_SECRET"
@@ -211,11 +211,17 @@ resource "aws_ecs_express_gateway_service" "write" {
     Project   = "HelpMe"
     Component = "WriteService"
   }
+
+  lifecycle {
+    ignore_changes = [
+      primary_container[0].environment
+    ]
+  }
 }
 
 # READ Service
 resource "aws_ecs_express_gateway_service" "read" {
-  service_name            = "${var.project_name}-read"
+  service_name            = "${var.project_name}-read-v3"
   execution_role_arn      = aws_iam_role.ecs_execution_role.arn
   infrastructure_role_arn = aws_iam_role.ecs_infrastructure_role.arn
 
@@ -227,20 +233,20 @@ resource "aws_ecs_express_gateway_service" "read" {
     container_port = 8080
 
     environment {
-      name  = "DATABASE_URL"
-      value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
+      name  = "ACCESS_SESSIONS_TABLE"
+      value = var.sessions_table_name
     }
     environment {
       name  = "CORE_SYSTEM_BUS_NAME"
       value = var.system_bus_name
     }
     environment {
-      name  = "EMERGENCY_BUS_NAME"
-      value = var.emergency_bus_name
+      name  = "DATABASE_URL"
+      value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
     }
     environment {
-      name  = "ACCESS_SESSIONS_TABLE"
-      value = var.sessions_table_name
+      name  = "EMERGENCY_BUS_NAME"
+      value = var.emergency_bus_name
     }
     environment {
       name  = "SYSTEM_SECRET"
@@ -251,6 +257,12 @@ resource "aws_ecs_express_gateway_service" "read" {
   tags = {
     Project   = "HelpMe"
     Component = "ReadService"
+  }
+
+  lifecycle {
+    ignore_changes = [
+      primary_container[0].environment
+    ]
   }
 }
 

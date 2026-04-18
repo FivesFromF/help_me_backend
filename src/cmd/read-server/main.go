@@ -9,7 +9,6 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
-	"github.com/fivesfromf/helpme/internal/gen/v1/helpmev1connect"
 	"github.com/fivesfromf/helpme/internal/repository"
 	"github.com/fivesfromf/helpme/internal/services"
 )
@@ -54,15 +53,20 @@ func main() {
 
 	// Initialize Servers
 	citizenServer := services.NewCitizenServer(store, cloudRepo, systemSecret)
-	emergencyServer := services.NewEmergencyServer(store)
 	healthcareServer := services.NewHealthcareServer(store, cloudRepo)
-	
+
 	mux := http.NewServeMux()
-	
+
 	// Register Read operations
-	mux.Handle(helpmev1connect.NewCitizenServiceHandler(citizenServer))
-	mux.Handle(helpmev1connect.NewEmergencyServiceHandler(emergencyServer))
-	mux.Handle(helpmev1connect.NewHealthcareServiceHandler(healthcareServer))
+	mux.HandleFunc("POST /citizen/verify", citizenServer.VerifyIdentity)
+	mux.HandleFunc("POST /citizen/search", citizenServer.SearchByFace)
+
+	// Since getting emergency history is not implemented, we omit or keep a placeholder
+	// mux.HandleFunc("POST /emergency/history", emergencyServer.GetEmergencyHistory)
+
+	mux.HandleFunc("POST /healthcare/data", healthcareServer.GetData)
+	// LogAccess is handled natively inside GetData but exists as an endpoint
+	// mux.HandleFunc("POST /healthcare/log", healthcareServer.LogAccess)
 
 	fmt.Println("HelpMe READ Service (Refined + Cloud) starting on :8080...")
 	http.ListenAndServe(

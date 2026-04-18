@@ -210,6 +210,94 @@ resource "aws_lambda_permission" "grant_eventbridge" {
   source_arn    = var.identification_rule_arn
 }
 
+# --- Cognito Passwordless Triggers ---
+
+resource "aws_iam_role" "cognito_trigger_role" {
+  name = "${var.project_name}-cognito-trigger-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "cognito_basic" {
+  role       = aws_iam_role.cognito_trigger_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_policy" "cognito_sns_publish" {
+  name = "${var.project_name}-cognito-sns-publish-policy"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action   = "sns:Publish"
+      Effect   = "Allow"
+      Resource = "*" # Or restrict to specific phone numbers/patterns if possible
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "cognito_sns_attach" {
+  role       = aws_iam_role.cognito_trigger_role.name
+  policy_arn = aws_iam_policy.cognito_sns_publish.arn
+}
+
+# Define Auth Challenge
+resource "aws_lambda_function" "cognito_define_auth" {
+  filename      = "${path.module}/cognito_define_auth.zip"
+  function_name = "${var.project_name}-cognito-define-auth"
+  role          = aws_iam_role.cognito_trigger_role.arn
+  handler       = "bootstrap"
+  runtime       = "provided.al2023"
+  lifecycle { ignore_changes = [filename] }
+}
+
+resource "aws_lambda_permission" "allow_cognito_define" {
+  statement_id  = "AllowCognitoInvokeDefine"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.cognito_define_auth.function_name
+  principal     = "cognito-idp.amazonaws.com"
+}
+
+# Create Auth Challenge
+resource "aws_lambda_function" "cognito_create_auth" {
+  filename      = "${path.module}/cognito_create_auth.zip"
+  function_name = "${var.project_name}-cognito-create-auth"
+  role          = aws_iam_role.cognito_trigger_role.arn
+  handler       = "bootstrap"
+  runtime       = "provided.al2023"
+  lifecycle { ignore_changes = [filename] }
+}
+
+resource "aws_lambda_permission" "allow_cognito_create" {
+  statement_id  = "AllowCognitoInvokeCreate"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.cognito_create_auth.function_name
+  principal     = "cognito-idp.amazonaws.com"
+}
+
+# Verify Auth Challenge Response
+resource "aws_lambda_function" "cognito_verify_auth" {
+  filename      = "${path.module}/cognito_verify_auth.zip"
+  function_name = "${var.project_name}-cognito-verify-auth"
+  role          = aws_iam_role.cognito_trigger_role.arn
+  handler       = "bootstrap"
+  runtime       = "provided.al2023"
+  lifecycle { ignore_changes = [filename] }
+}
+
+resource "aws_lambda_permission" "allow_cognito_verify" {
+  statement_id  = "AllowCognitoInvokeVerify"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.cognito_verify_auth.function_name
+  principal     = "cognito-idp.amazonaws.com"
+}
+
 # --- Variables & Outputs ---
 
 variable "project_name" {}
@@ -235,4 +323,16 @@ output "notification_lambda_arn" {
 
 output "grant_permission_lambda_arn" {
   value = aws_lambda_function.grant_permission_worker.arn
+}
+
+output "cognito_define_auth_arn" {
+  value = aws_lambda_function.cognito_define_auth.arn
+}
+
+output "cognito_create_auth_arn" {
+  value = aws_lambda_function.cognito_create_auth.arn
+}
+
+output "cognito_verify_auth_arn" {
+  value = aws_lambda_function.cognito_verify_auth.arn
 }

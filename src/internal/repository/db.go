@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/fivesfromf/helpme/internal/repository/sqlc"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Store struct {

@@ -2,8 +2,15 @@ resource "aws_cognito_user_pool" "pool" {
   name = "${var.project_name}-user-pool"
 
   # Standard attributes
-  username_attributes = ["email"]
   auto_verified_attributes = ["email"]
+  alias_attributes = ["email", "phone_number"]
+
+  # Lambda Triggers for Passwordless OTP
+  lambda_config {
+    define_auth_challenge          = var.cognito_define_auth_arn
+    create_auth_challenge          = var.cognito_create_auth_arn
+    verify_auth_challenge_response = var.cognito_verify_auth_arn
+  }
 
   # Password policy for MVP
   password_policy {
@@ -19,7 +26,7 @@ resource "aws_cognito_user_pool" "pool" {
     attribute_data_type      = "String"
     developer_only_attribute = false
     mutable                  = true
-    name                     = "role" # Custom role: Doctor, Rescuer, Citizen
+    name                     = "role" # Custom role: Admin, Doctor, Staff, Citizen
     string_attribute_constraints {
       min_length = 1
       max_length = 256
@@ -31,6 +38,26 @@ resource "aws_cognito_user_pool" "pool" {
   }
 }
 
+# --- User Groups ---
+
+resource "aws_cognito_user_group" "admins" {
+  name         = "Admins"
+  user_pool_id = aws_cognito_user_pool.pool.id
+  description  = "System Administrators with full access"
+}
+
+resource "aws_cognito_user_group" "staff" {
+  name         = "Staff"
+  user_pool_id = aws_cognito_user_pool.pool.id
+  description  = "Healthcare Staff and Doctors"
+}
+
+resource "aws_cognito_user_group" "citizens" {
+  name         = "Citizens"
+  user_pool_id = aws_cognito_user_pool.pool.id
+  description  = "General public users"
+}
+
 resource "aws_cognito_user_pool_client" "client" {
   name = "${var.project_name}-app-client"
 
@@ -40,7 +67,8 @@ resource "aws_cognito_user_pool_client" "client" {
   explicit_auth_flows = [
     "ALLOW_USER_PASSWORD_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH",
-    "ALLOW_USER_SRP_AUTH"
+    "ALLOW_USER_SRP_AUTH",
+    "ALLOW_CUSTOM_AUTH"
   ]
 
   # For MVP simplified auth
@@ -56,6 +84,11 @@ variable "project_name" {}
 variable "random_suffix" {
   default = "dev"
 }
+
+# Lambda trigger ARNs
+variable "cognito_define_auth_arn" {}
+variable "cognito_create_auth_arn" {}
+variable "cognito_verify_auth_arn" {}
 
 output "user_pool_id" {
   value = aws_cognito_user_pool.pool.id

@@ -56,7 +56,10 @@ module "lambda" {
 module "auth" {
   source = "./modules/auth"
 
-  project_name = var.project_name
+  project_name            = var.project_name
+  cognito_define_auth_arn = module.lambda.cognito_define_auth_arn
+  cognito_create_auth_arn = module.lambda.cognito_create_auth_arn
+  cognito_verify_auth_arn = module.lambda.cognito_verify_auth_arn
 }
 
 module "authorizer" {
@@ -105,8 +108,9 @@ module "apigateway" {
   source = "./modules/apigateway"
 
   project_name      = var.project_name
-  write_service_endpoint = module.ecs.write_service_endpoint
-  read_service_endpoint  = module.ecs.read_service_endpoint
+  # Temporarily hardcoding v3 endpoints due to provider state sync bug
+  write_service_endpoint = "he-d2c8cccfcacf4038a239822368d8e326.ecs.ap-southeast-1.on.aws"
+  read_service_endpoint  = "he-00cb9d1206904742851dceae1ad7e979.ecs.ap-southeast-1.on.aws"
   authorizer_uri    = module.authorizer.authorizer_uri
 }
 

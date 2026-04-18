@@ -9,14 +9,21 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
-	"github.com/fivesfromf/helpme/internal/gen/v1/helpmev1connect"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+
 	"github.com/fivesfromf/helpme/internal/repository"
 	"github.com/fivesfromf/helpme/internal/services"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Load .env file if present (for local development)
+	_ = godotenv.Load()
+
 	ctx := context.Background()
-	
+
 	// Initialize Database Store
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
@@ -45,6 +52,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Cognito Configuration
+	userPoolID := os.Getenv("COGNITO_USER_POOL_ID")
+	clientID := os.Getenv("COGNITO_CLIENT_ID")
+	auditTable := os.Getenv("AUDIT_LOGS_TABLE")
+	if userPoolID == "" || clientID == "" || auditTable == "" {
+		fmt.Println("COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID, and AUDIT_LOGS_TABLE must be set")
+		os.Exit(1)
+	}
+
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		fmt.Printf("Failed to load AWS config: %v\n", err)
+		os.Exit(1)
+	}
+	cognitoClient := cognitoidentityprovider.NewFromConfig(cfg)
+	dynamicClient := dynamodb.NewFromConfig(cfg)
+
 	// System Secret for NFC/QR Hashing
 	systemSecret := os.Getenv("SYSTEM_SECRET")
 	if systemSecret == "" {
@@ -55,12 +79,30 @@ func main() {
 	// Initialize Servers
 	citizenServer := services.NewCitizenServer(store, cloudRepo, systemSecret)
 	emergencyServer := services.NewEmergencyServer(store)
-	
+	authServer := services.NewAuthServer(store, cognitoClient, userPoolID, clientID)
+	adminServer := services.NewAdminServer(store, cognitoClient, dynamicClient, auditTable, userPoolID)
+
 	mux := http.NewServeMux()
-	
-	// Register Write operations
-	mux.Handle(helpmev1connect.NewCitizenServiceHandler(citizenServer))
-	mux.Handle(helpmev1connect.NewEmergencyServiceHandler(emergencyServer))
+
+	// REST Route Definitions
+	// 1. Auth & Sign In
+	mux.HandleFunc("POST /request-otp", authServer.RequestOTP)
+	mux.HandleFunc("POST /verify-otp", authServer.VerifyOTP)
+	mux.HandleFunc("POST /staff-signin", authServer.StaffSignIn)
+
+	// 2. Citizen Operations
+	mux.HandleFunc("POST /citizen/register", citizenServer.Register)
+	mux.HandleFunc("POST /citizen/verify", citizenServer.VerifyIdentity)
+	mux.HandleFunc("POST /citizen/search", citizenServer.SearchByFace)
+
+	// 3. Emergency Operations
+	mux.HandleFunc("POST /emergency/report", emergencyServer.ReportEmergency)
+
+	// 4. Admin Operations
+	mux.HandleFunc("POST /admin/stats", adminServer.GetSystemStats)
+	mux.HandleFunc("POST /admin/logs", adminServer.ListAuditLogs)
+	mux.HandleFunc("POST /admin/staff/register", adminServer.RegisterStaff)
+	mux.HandleFunc("POST /admin/staff/manage", adminServer.ManageStaff)
 
 	fmt.Println("HelpMe WRITE Service (Refined + Cloud) starting on :8080...")
 	http.ListenAndServe(

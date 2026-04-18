@@ -1,14 +1,13 @@
 package services
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 
-	"github.com/bufbuild/connect-go"
 	"github.com/jackc/pgx/v5/pgtype"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
-	helpmev1 "github.com/fivesfromf/helpme/internal/gen/v1"
+	"github.com/fivesfromf/helpme/internal/api"
 	"github.com/fivesfromf/helpme/internal/repository"
 	"github.com/fivesfromf/helpme/internal/utils"
 )
@@ -26,60 +25,57 @@ func NewHealthcareServer(store *repository.Store, cloudRepo *repository.CloudRep
 	}
 }
 
-func (s *HealthcareServer) GetData(
-	ctx context.Context,
-	req *connect.Request[helpmev1.GetMedicalRecordRequest],
-) (*connect.Response[helpmev1.GetMedicalRecordResponse], error) {
-	fmt.Printf("Fetching medical record for citizen: %s by staff: %s\n", req.Msg.CitizenId, req.Msg.StaffId)
-	
+func (s *HealthcareServer) GetData(w http.ResponseWriter, r *http.Request) {
+	var req api.GetMedicalRecordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+
+	fmt.Printf("Fetching medical record for citizen: %s by staff: %s\n", req.CitizenID, req.StaffID)
+
 	var citizenID pgtype.UUID
-	if err := citizenID.Scan(req.Msg.CitizenId); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid citizen_id: %w", err))
+	if err := citizenID.Scan(req.CitizenID); err != nil {
+		utils.WriteError(w, http.StatusBadRequest, fmt.Sprintf("invalid citizen_id: %v", err))
+		return
 	}
 
 	// 1. Check for Active Session in DynamoDB (Privacy Lock)
-	staffID := req.Msg.StaffId
-	hasAccess, err := s.cloudRepo.CheckAccessSession(ctx, staffID, req.Msg.CitizenId)
+	hasAccess, err := s.cloudRepo.CheckAccessSession(r.Context(), req.StaffID, req.CitizenID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to verify access session: %w", err))
+		utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to verify access session: %v", err))
+		return
 	}
 	if !hasAccess {
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("no active identification session found for this victim"))
+		utils.WriteError(w, http.StatusForbidden, "no active identification session found for this victim")
+		return
 	}
 
 	// 2. Fetch Data from RDS
-	record, err := s.store.GetMedicalRecord(ctx, citizenID)
+	record, err := s.store.GetMedicalRecord(r.Context(), citizenID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("medical record not found: %w", err))
+		utils.WriteError(w, http.StatusNotFound, fmt.Sprintf("medical record not found: %v", err))
+		return
 	}
 
 	// 3. Publish Audit Event to EventBridge (Decoupled Logging)
-	_ = s.cloudRepo.PublishSystemEvent(ctx, "access.medical_record", map[string]string{
-		"staff_id":   staffID,
-		"citizen_id": req.Msg.CitizenId,
+	_ = s.cloudRepo.PublishSystemEvent(r.Context(), "access.medical_record", map[string]string{
+		"staff_id":   req.StaffID,
+		"citizen_id": req.CitizenID,
 		"action":     "READ",
 		"reason":     "Medical triage",
 	})
 
-	return connect.NewResponse(&helpmev1.GetMedicalRecordResponse{
-		Record: &helpmev1.MedicalRecord{
-			CitizenId:           utils.UUIDToString(record.CitizenID),
+	utils.WriteJSON(w, http.StatusOK, api.GetMedicalRecordResponse{
+		Record: &api.ApiMedicalRecord{ // Use aliased internal DTO due to conflict with same package naming
+			CitizenID:           utils.UUIDToString(record.CitizenID),
 			DistinguishingMarks: record.DistinguishingMarks.String,
 			BloodGroup:          record.BloodGroup.String,
 			Allergies:           record.Allergies,
 			BackgroundDiseases:  record.BackgroundDiseases,
 			CurrentMedications:  record.CurrentMedications,
 			Notes:               record.Notes.String,
-			LastUpdated:         timestamppb.New(record.LastUpdated.Time),
+			LastUpdated:         record.LastUpdated.Time,
 		},
-	}), nil
-}
-
-func (s *HealthcareServer) LogAccess(
-	ctx context.Context,
-	req *connect.Request[helpmev1.LogAccessRequest],
-) (*connect.Response[helpmev1.LogAccessResponse], error) {
-	// Auditing is handled via EventBridge workers in the full architecture,
-	// but for MVP we log directly in GetData.
-	return connect.NewResponse(&helpmev1.LogAccessResponse{Success: true}), nil
+	})
 }

@@ -178,6 +178,59 @@ func (q *Queries) CreateQRCode(ctx context.Context, arg CreateQRCodeParams) (QrC
 	return i, err
 }
 
+const createStaff = `-- name: CreateStaff :one
+INSERT INTO healthcare_staff (
+    full_name, email, password_hash, hospital_name, role, phone
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+)
+RETURNING id, full_name, email, password_hash, hospital_name, role, status, phone, created_at, updated_at
+`
+
+type CreateStaffParams struct {
+	FullName     string      `json:"full_name"`
+	Email        string      `json:"email"`
+	PasswordHash string      `json:"password_hash"`
+	HospitalName pgtype.Text `json:"hospital_name"`
+	Role         string      `json:"role"`
+	Phone        pgtype.Text `json:"phone"`
+}
+
+func (q *Queries) CreateStaff(ctx context.Context, arg CreateStaffParams) (HealthcareStaff, error) {
+	row := q.db.QueryRow(ctx, createStaff,
+		arg.FullName,
+		arg.Email,
+		arg.PasswordHash,
+		arg.HospitalName,
+		arg.Role,
+		arg.Phone,
+	)
+	var i HealthcareStaff
+	err := row.Scan(
+		&i.ID,
+		&i.FullName,
+		&i.Email,
+		&i.PasswordHash,
+		&i.HospitalName,
+		&i.Role,
+		&i.Status,
+		&i.Phone,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const deleteOTP = `-- name: DeleteOTP :exec
+DELETE FROM otps
+WHERE phone = $1
+`
+
+func (q *Queries) DeleteOTP(ctx context.Context, phone string) error {
+	_, err := q.db.Exec(ctx, deleteOTP, phone)
+	return err
+}
+
 const getCitizen = `-- name: GetCitizen :one
 SELECT id, full_name, date_of_birth, gender, address, email, phone, cccd_number, avatar_url, face_embedding, emergency_contacts, created_at, updated_at FROM citizens
 WHERE id = $1 LIMIT 1
@@ -228,6 +281,66 @@ func (q *Queries) GetCitizenByCCCD(ctx context.Context, cccdNumber pgtype.Text) 
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getCitizenByPhone = `-- name: GetCitizenByPhone :one
+SELECT id, full_name, date_of_birth, gender, address, email, phone, cccd_number, avatar_url, face_embedding, emergency_contacts, created_at, updated_at FROM citizens
+WHERE phone = $1 LIMIT 1
+`
+
+func (q *Queries) GetCitizenByPhone(ctx context.Context, phone pgtype.Text) (Citizens, error) {
+	row := q.db.QueryRow(ctx, getCitizenByPhone, phone)
+	var i Citizens
+	err := row.Scan(
+		&i.ID,
+		&i.FullName,
+		&i.DateOfBirth,
+		&i.Gender,
+		&i.Address,
+		&i.Email,
+		&i.Phone,
+		&i.CccdNumber,
+		&i.AvatarUrl,
+		&i.FaceEmbedding,
+		&i.EmergencyContacts,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getCountCitizens = `-- name: GetCountCitizens :one
+SELECT COUNT(*) FROM citizens
+`
+
+func (q *Queries) GetCountCitizens(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, getCountCitizens)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const getCountEmergencyToday = `-- name: GetCountEmergencyToday :one
+SELECT COUNT(*) FROM emergency_reports
+WHERE created_at >= CURRENT_DATE
+`
+
+func (q *Queries) GetCountEmergencyToday(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, getCountEmergencyToday)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const getCountStaff = `-- name: GetCountStaff :one
+SELECT COUNT(*) FROM healthcare_staff
+`
+
+func (q *Queries) GetCountStaff(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, getCountStaff)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const getEmergencyHistory = `-- name: GetEmergencyHistory :many
@@ -307,6 +420,18 @@ func (q *Queries) GetNFCTag(ctx context.Context, id string) (NfcTags, error) {
 	return i, err
 }
 
+const getOTP = `-- name: GetOTP :one
+SELECT phone, code, expires_at FROM otps
+WHERE phone = $1 LIMIT 1
+`
+
+func (q *Queries) GetOTP(ctx context.Context, phone string) (Otps, error) {
+	row := q.db.QueryRow(ctx, getOTP, phone)
+	var i Otps
+	err := row.Scan(&i.Phone, &i.Code, &i.ExpiresAt)
+	return i, err
+}
+
 const getQRCode = `-- name: GetQRCode :one
 SELECT id, name, status, citizen_id, created_at, last_used_at FROM qr_codes
 WHERE id = $1 LIMIT 1
@@ -322,6 +447,29 @@ func (q *Queries) GetQRCode(ctx context.Context, id pgtype.UUID) (QrCodes, error
 		&i.CitizenID,
 		&i.CreatedAt,
 		&i.LastUsedAt,
+	)
+	return i, err
+}
+
+const getStaffByEmail = `-- name: GetStaffByEmail :one
+SELECT id, full_name, email, password_hash, hospital_name, role, status, phone, created_at, updated_at FROM healthcare_staff
+WHERE email = $1 LIMIT 1
+`
+
+func (q *Queries) GetStaffByEmail(ctx context.Context, email string) (HealthcareStaff, error) {
+	row := q.db.QueryRow(ctx, getStaffByEmail, email)
+	var i HealthcareStaff
+	err := row.Scan(
+		&i.ID,
+		&i.FullName,
+		&i.Email,
+		&i.PasswordHash,
+		&i.HospitalName,
+		&i.Role,
+		&i.Status,
+		&i.Phone,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -614,4 +762,38 @@ func (q *Queries) UpdateQRStatus(ctx context.Context, arg UpdateQRStatusParams) 
 		&i.LastUsedAt,
 	)
 	return i, err
+}
+
+const updateStaffStatus = `-- name: UpdateStaffStatus :exec
+UPDATE healthcare_staff
+SET status = $2, updated_at = NOW()
+WHERE id = $1
+`
+
+type UpdateStaffStatusParams struct {
+	ID     pgtype.UUID `json:"id"`
+	Status string      `json:"status"`
+}
+
+func (q *Queries) UpdateStaffStatus(ctx context.Context, arg UpdateStaffStatusParams) error {
+	_, err := q.db.Exec(ctx, updateStaffStatus, arg.ID, arg.Status)
+	return err
+}
+
+const upsertOTP = `-- name: UpsertOTP :exec
+INSERT INTO otps (phone, code, expires_at)
+VALUES ($1, $2, $3)
+ON CONFLICT (phone) DO UPDATE
+SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at
+`
+
+type UpsertOTPParams struct {
+	Phone     string             `json:"phone"`
+	Code      string             `json:"code"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+}
+
+func (q *Queries) UpsertOTP(ctx context.Context, arg UpsertOTPParams) error {
+	_, err := q.db.Exec(ctx, upsertOTP, arg.Phone, arg.Code, arg.ExpiresAt)
+	return err
 }
