@@ -160,14 +160,30 @@ resource "aws_ecs_express_gateway_service" "write" {
     image          = var.write_container_image
     container_port = 8080
     
-    # Environment variables (Map format for Express Mode)
-    environment = {
-      DATABASE_URL          = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
-      TIMESTREAM_DATABASE   = var.timestream_db
-      TIMESTREAM_TABLE      = var.timestream_table
-      EVENT_BUS_NAME        = var.event_bus_name
-      ACCESS_SESSIONS_TABLE = var.session_table_name
-      SYSTEM_SECRET         = var.system_secret
+    # Environment variables (Block format for Express Mode)
+    environment {
+      name  = "DATABASE_URL"
+      value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
+    }
+    environment {
+      name  = "TIMESTREAM_DATABASE"
+      value = var.timestream_db
+    }
+    environment {
+      name  = "TIMESTREAM_TABLE"
+      value = var.timestream_table
+    }
+    environment {
+      name  = "EVENT_BUS_NAME"
+      value = var.event_bus_name
+    }
+    environment {
+      name  = "ACCESS_SESSIONS_TABLE"
+      value = var.session_table_name
+    }
+    environment {
+      name  = "SYSTEM_SECRET"
+      value = var.system_secret
     }
   }
 }
@@ -182,13 +198,29 @@ resource "aws_ecs_express_gateway_service" "read" {
     image          = var.read_container_image
     container_port = 8080
 
-    environment = {
-      DATABASE_URL          = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
-      TIMESTREAM_DATABASE   = var.timestream_db
-      TIMESTREAM_TABLE      = var.timestream_table
-      EVENT_BUS_NAME        = var.event_bus_name
-      ACCESS_SESSIONS_TABLE = var.session_table_name
-      SYSTEM_SECRET         = var.system_secret
+    environment {
+      name  = "DATABASE_URL"
+      value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
+    }
+    environment {
+      name  = "TIMESTREAM_DATABASE"
+      value = var.timestream_db
+    }
+    environment {
+      name  = "TIMESTREAM_TABLE"
+      value = var.timestream_table
+    }
+    environment {
+      name  = "EVENT_BUS_NAME"
+      value = var.event_bus_name
+    }
+    environment {
+      name  = "ACCESS_SESSIONS_TABLE"
+      value = var.session_table_name
+    }
+    environment {
+      name  = "SYSTEM_SECRET"
+      value = var.system_secret
     }
   }
 }
