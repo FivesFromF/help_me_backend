@@ -8,6 +8,10 @@ resource "aws_ecr_repository" "app" {
   }
 
   force_delete = true
+
+  tags = {
+    Project = "HelpMe"
+  }
 }
 
 resource "aws_ecr_lifecycle_policy" "app" {
@@ -44,7 +48,8 @@ resource "aws_security_group" "app_tasks" {
   }
 
   tags = {
-    Name = "${var.project_name}-ecs-app-sg"
+    Name    = "${var.project_name}-ecs-app-sg"
+    Project = "HelpMe"
   }
 }
 
@@ -62,6 +67,10 @@ resource "aws_iam_role" "ecs_execution_role" {
       Principal = { Service = "ecs-tasks.amazonaws.com" }
     }]
   })
+
+  tags = {
+    Project = "HelpMe"
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
@@ -87,6 +96,10 @@ resource "aws_iam_policy" "timestream_write" {
       }
     ]
   })
+
+  tags = {
+    Project = "HelpMe"
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "ecs_timestream_write" {
@@ -115,6 +128,10 @@ resource "aws_iam_policy" "ecs_cloud_access" {
       }
     ]
   })
+
+  tags = {
+    Project = "HelpMe"
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "ecs_cloud_access_attach" {
@@ -134,6 +151,10 @@ resource "aws_iam_role" "ecs_infrastructure_role" {
       Principal = { Service = "ecs.amazonaws.com" }
     }]
   })
+
+  tags = {
+    Project = "HelpMe"
+  }
 }
 
 # Standard policy for ECS to manage infrastructure on behalf of the user
@@ -146,6 +167,10 @@ resource "aws_iam_role_policy_attachment" "ecs_infrastructure_role_policy" {
 resource "aws_cloudwatch_log_group" "express" {
   name              = "/ecs/${var.project_name}-express"
   retention_in_days = 7
+
+  tags = {
+    Project = "HelpMe"
+  }
 }
 
 # --- ECS Express Gateway Services ---
@@ -155,6 +180,9 @@ resource "aws_ecs_express_gateway_service" "write" {
   service_name            = "${var.project_name}-write"
   execution_role_arn      = aws_iam_role.ecs_execution_role.arn
   infrastructure_role_arn = aws_iam_role.ecs_infrastructure_role.arn
+
+  cpu    = 256  # 0.25 vCPU
+  memory = 512  # 0.5 GB RAM
 
   primary_container {
     image          = var.write_container_image
@@ -186,6 +214,11 @@ resource "aws_ecs_express_gateway_service" "write" {
       value = var.system_secret
     }
   }
+
+  tags = {
+    Project   = "HelpMe"
+    Component = "WriteService"
+  }
 }
 
 # READ Service
@@ -193,6 +226,9 @@ resource "aws_ecs_express_gateway_service" "read" {
   service_name            = "${var.project_name}-read"
   execution_role_arn      = aws_iam_role.ecs_execution_role.arn
   infrastructure_role_arn = aws_iam_role.ecs_infrastructure_role.arn
+
+  cpu    = 256  # 0.25 vCPU
+  memory = 512  # 0.5 GB RAM
 
   primary_container {
     image          = var.read_container_image
@@ -222,6 +258,11 @@ resource "aws_ecs_express_gateway_service" "read" {
       name  = "SYSTEM_SECRET"
       value = var.system_secret
     }
+  }
+
+  tags = {
+    Project   = "HelpMe"
+    Component = "ReadService"
   }
 }
 

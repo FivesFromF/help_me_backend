@@ -10,6 +10,11 @@ resource "aws_iam_role" "audit_worker_role" {
       Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
+
+  tags = {
+    Project   = "HelpMe"
+    Component = "IAM-AuditRole"
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "audit_basic" {
@@ -27,6 +32,11 @@ resource "aws_iam_policy" "audit_timestream" {
       Resource = "*"
     }]
   })
+
+  tags = {
+    Project   = "HelpMe"
+    Component = "Policy-AuditTimestream"
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "audit_timestream_attach" {
@@ -51,6 +61,11 @@ resource "aws_lambda_function" "audit_worker" {
   lifecycle {
     ignore_changes = [filename]
   }
+
+  tags = {
+    Project   = "HelpMe"
+    Component = "Lambda-Audit"
+  }
 }
 
 resource "aws_lambda_permission" "audit_eventbridge" {
@@ -73,6 +88,11 @@ resource "aws_iam_role" "notification_worker_role" {
       Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
+
+  tags = {
+    Project   = "HelpMe"
+    Component = "IAM-NotificationRole"
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "notification_basic" {
@@ -90,6 +110,11 @@ resource "aws_iam_policy" "notification_sns" {
       Resource = var.sns_topic_arn
     }]
   })
+
+  tags = {
+    Project   = "HelpMe"
+    Component = "Policy-NotificationSNS"
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "notification_sns_attach" {
@@ -113,6 +138,11 @@ resource "aws_lambda_function" "notification_worker" {
 
   lifecycle {
     ignore_changes = [filename]
+  }
+
+  tags = {
+    Project   = "HelpMe"
+    Component = "Lambda-Notification"
   }
 }
 
@@ -145,6 +175,11 @@ resource "aws_iam_role" "grant_permission_worker_role" {
       Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
+
+  tags = {
+    Project   = "HelpMe"
+    Component = "IAM-GrantRole"
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "grant_basic" {
@@ -162,6 +197,11 @@ resource "aws_iam_policy" "grant_dynamodb" {
       Resource = var.session_table_arn
     }]
   })
+
+  tags = {
+    Project   = "HelpMe"
+    Component = "Policy-GrantDynamoDB"
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "grant_dynamodb_attach" {
@@ -184,6 +224,11 @@ resource "aws_lambda_function" "grant_permission_worker" {
 
   lifecycle {
     ignore_changes = [filename]
+  }
+
+  tags = {
+    Project   = "HelpMe"
+    Component = "Lambda-Grant"
   }
 }
 

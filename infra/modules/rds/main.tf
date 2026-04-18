@@ -3,7 +3,8 @@ resource "aws_db_subnet_group" "main" {
   subnet_ids = var.subnet_ids
 
   tags = {
-    Name = "${var.project_name}-db-subnet-group"
+    Name    = "${var.project_name}-db-subnet-group"
+    Project = "HelpMe"
   }
 }
 
@@ -24,6 +25,11 @@ resource "aws_security_group" "rds" {
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name    = "${var.project_name}-rds-sg"
+    Project = "HelpMe"
   }
 }
 
@@ -46,6 +52,10 @@ resource "aws_db_instance" "main" {
   publicly_accessible  = false
   skip_final_snapshot  = true
   apply_immediately    = true
+
+  tags = {
+    Project = "HelpMe"
+  }
 }
 
 variable "project_name" {}

@@ -14,7 +14,8 @@ resource "aws_dynamodb_table" "access_sessions" {
   }
 
   tags = {
-    Name = "${var.project_name}-access-sessions"
+    Name    = "${var.project_name}-access-sessions"
+    Project = "HelpMe"
   }
 }
 

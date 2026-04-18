@@ -1,5 +1,8 @@
-resource "aws_timestreamwrite_database" "audit" {
   database_name = "${var.project_name}-audit"
+
+  tags = {
+    Project = "HelpMe"
+  }
 }
 
 resource "aws_timestreamwrite_table" "audit_logs" {
@@ -12,7 +15,8 @@ resource "aws_timestreamwrite_table" "audit_logs" {
   }
 
   tags = {
-    Name = "${var.project_name}-audit-logs"
+    Name    = "${var.project_name}-audit-logs"
+    Project = "HelpMe"
   }
 }
 
