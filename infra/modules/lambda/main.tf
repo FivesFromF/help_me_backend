@@ -14,7 +14,7 @@ resource "aws_iam_role" "audit_worker_role" {
 
 resource "aws_iam_role_policy_attachment" "audit_basic" {
   role       = aws_iam_role.audit_worker_role.name
-  policy_arn = "arn:aws:iam:aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
 resource "aws_iam_policy" "audit_timestream" {
@@ -77,7 +77,7 @@ resource "aws_iam_role" "notification_worker_role" {
 
 resource "aws_iam_role_policy_attachment" "notification_basic" {
   role       = aws_iam_role.notification_worker_role.name
-  policy_arn = "arn:aws:iam:aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
 resource "aws_iam_policy" "notification_sns" {
@@ -149,7 +149,7 @@ resource "aws_iam_role" "grant_permission_worker_role" {
 
 resource "aws_iam_role_policy_attachment" "grant_basic" {
   role       = aws_iam_role.grant_permission_worker_role.name
-  policy_arn = "arn:aws:iam:aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
 resource "aws_iam_policy" "grant_dynamodb" {

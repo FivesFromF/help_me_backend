@@ -66,7 +66,7 @@ resource "aws_iam_role" "ecs_execution_role" {
 
 resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
   role       = aws_iam_role.ecs_execution_role.name
-  policy_arn = "arn:aws:iam:aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
 # --- Timestream IAM Permissions ---
@@ -139,7 +139,7 @@ resource "aws_iam_role" "ecs_infrastructure_role" {
 # Standard policy for ECS to manage infrastructure on behalf of the user
 resource "aws_iam_role_policy_attachment" "ecs_infrastructure_role_policy" {
   role       = aws_iam_role.ecs_infrastructure_role.name
-  policy_arn = "arn:aws:iam:aws:policy/service-role/AmazonECSInfrastructureRolePolicyForService"
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRolePolicyForService"
 }
 
 # --- CloudWatch Logs ---
@@ -152,78 +152,45 @@ resource "aws_cloudwatch_log_group" "express" {
 
 # WRITE Service
 resource "aws_ecs_express_gateway_service" "write" {
-  name                    = "${var.project_name}-write"
+  service_name            = "${var.project_name}-write"
   execution_role_arn      = aws_iam_role.ecs_execution_role.arn
   infrastructure_role_arn = aws_iam_role.ecs_infrastructure_role.arn
-  
-  # Network Configuration
-  vpc_id     = var.vpc_id
-  subnet_ids = var.subnet_ids
-  security_group_ids = [aws_security_group.app_tasks.id]
 
   primary_container {
-    name           = "helpme-write"
     image          = var.write_container_image
     container_port = 8080
     
-    # Environment variables
-    environment = [
-      { name = "DATABASE_URL", value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme" }, 
-      { name = "TIMESTREAM_DATABASE", value = var.timestream_db },
-      { name = "TIMESTREAM_TABLE", value = var.timestream_table },
-      { name = "EVENT_BUS_NAME", value = var.event_bus_name },
-      { name = "ACCESS_SESSIONS_TABLE", value = var.session_table_name },
-      { name = "SYSTEM_SECRET", value = var.system_secret }
-    ]
-  }
-
-  log_configuration {
-    log_driver = "awslogs"
-    options = {
-      "awslogs-group"         = aws_cloudwatch_log_group.express.name
-      "awslogs-region"        = "ap-southeast-1"
-      "awslogs-stream-prefix" = "write"
+    # Environment variables (Map format for Express Mode)
+    environment = {
+      DATABASE_URL          = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
+      TIMESTREAM_DATABASE   = var.timestream_db
+      TIMESTREAM_TABLE      = var.timestream_table
+      EVENT_BUS_NAME        = var.event_bus_name
+      ACCESS_SESSIONS_TABLE = var.session_table_name
+      SYSTEM_SECRET         = var.system_secret
     }
   }
-
-  # Simplified horizontal scaling
-  desired_count = 1
 }
 
 # READ Service
 resource "aws_ecs_express_gateway_service" "read" {
-  name                    = "${var.project_name}-read"
+  service_name            = "${var.project_name}-read"
   execution_role_arn      = aws_iam_role.ecs_execution_role.arn
   infrastructure_role_arn = aws_iam_role.ecs_infrastructure_role.arn
-  
-  vpc_id     = var.vpc_id
-  subnet_ids = var.subnet_ids
 
-    primary_container {
-    name           = "helpme-read"
+  primary_container {
     image          = var.read_container_image
     container_port = 8080
 
-    environment = [
-      { name = "DATABASE_URL", value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme" }, 
-      { name = "TIMESTREAM_DATABASE", value = var.timestream_db },
-      { name = "TIMESTREAM_TABLE", value = var.timestream_table },
-      { name = "EVENT_BUS_NAME", value = var.event_bus_name },
-      { name = "ACCESS_SESSIONS_TABLE", value = var.session_table_name },
-      { name = "SYSTEM_SECRET", value = var.system_secret }
-    ]
-  }
-
-  log_configuration {
-    log_driver = "awslogs"
-    options = {
-      "awslogs-group"         = aws_cloudwatch_log_group.express.name
-      "awslogs-region"        = "ap-southeast-1"
-      "awslogs-stream-prefix" = "read"
+    environment = {
+      DATABASE_URL          = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
+      TIMESTREAM_DATABASE   = var.timestream_db
+      TIMESTREAM_TABLE      = var.timestream_table
+      EVENT_BUS_NAME        = var.event_bus_name
+      ACCESS_SESSIONS_TABLE = var.session_table_name
+      SYSTEM_SECRET         = var.system_secret
     }
   }
-
-  desired_count = 1
 }
 
 # --- Variables & Outputs ---
