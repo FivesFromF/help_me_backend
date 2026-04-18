@@ -27,7 +27,7 @@ resource "aws_apigatewayv2_authorizer" "auth" {
 resource "aws_apigatewayv2_integration" "write" {
   api_id           = aws_apigatewayv2_api.main.id
   integration_type = "HTTP_PROXY"
-  integration_uri  = "http://${var.write_service_dns}"
+  integration_uri  = var.write_service_endpoint
   integration_method = "ANY"
   
   request_parameters = {
@@ -38,7 +38,7 @@ resource "aws_apigatewayv2_integration" "write" {
 resource "aws_apigatewayv2_integration" "read" {
   api_id           = aws_apigatewayv2_api.main.id
   integration_type = "HTTP_PROXY"
-  integration_uri  = "http://${var.read_service_dns}"
+  integration_uri  = var.read_service_endpoint
   integration_method = "ANY"
 
   request_parameters = {
@@ -67,8 +67,8 @@ resource "aws_apigatewayv2_route" "read_proxy" {
 }
 
 variable "project_name" {}
-variable "write_service_dns" {}
-variable "read_service_dns" {}
+variable "write_service_endpoint" {}
+variable "read_service_endpoint" {}
 variable "authorizer_uri" {}
 
 output "api_endpoint" {

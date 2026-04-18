@@ -55,7 +55,6 @@ resource "aws_security_group" "app_tasks" {
 
 # --- IAM Roles for ECS Express Mode ---
 
-# Execution Role (Standard)
 resource "aws_iam_role" "ecs_execution_role" {
   name = "${var.project_name}-ecs-execution-role-express"
 
@@ -78,36 +77,6 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# --- Timestream IAM Permissions ---
-resource "aws_iam_policy" "timestream_write" {
-  name        = "${var.project_name}-timestream-write-policy"
-  description = "Allows ECS tasks to write audit logs to Timestream"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = [
-          "timestream:WriteRecords",
-          "timestream:DescribeEndpoints"
-        ]
-        Effect   = "Allow"
-        Resource = "*"
-      }
-    ]
-  })
-
-  tags = {
-    Project = "HelpMe"
-  }
-}
-
-resource "aws_iam_role_policy_attachment" "ecs_timestream_write" {
-  role       = aws_iam_role.ecs_execution_role.name
-  policy_arn = aws_iam_policy.timestream_write.arn
-}
-
-# --- EventBridge & DynamoDB IAM Permissions ---
 resource "aws_iam_policy" "ecs_cloud_access" {
   name        = "${var.project_name}-ecs-cloud-access"
   policy = jsonencode({
@@ -124,7 +93,7 @@ resource "aws_iam_policy" "ecs_cloud_access" {
           "dynamodb:Query"
         ]
         Effect   = "Allow"
-        Resource = var.session_table_arn
+        Resource = var.sessions_table_arn
       }
     ]
   })
@@ -139,7 +108,6 @@ resource "aws_iam_role_policy_attachment" "ecs_cloud_access_attach" {
   policy_arn = aws_iam_policy.ecs_cloud_access.arn
 }
 
-# Infrastructure Role (Required for Express Mode)
 resource "aws_iam_role" "ecs_infrastructure_role" {
   name = "${var.project_name}-ecs-infra-role"
 
@@ -157,10 +125,38 @@ resource "aws_iam_role" "ecs_infrastructure_role" {
   }
 }
 
-# Standard policy for ECS to manage infrastructure on behalf of the user
-resource "aws_iam_role_policy_attachment" "ecs_infrastructure_role_policy" {
-  role       = aws_iam_role.ecs_infrastructure_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRolePolicyForService"
+resource "aws_iam_role_policy" "ecs_infrastructure_role_policy" {
+  name = "${var.project_name}-ecs-infra-inline-policy"
+  role = aws_iam_role.ecs_infrastructure_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "ec2:CreateSecurityGroup",
+          "ec2:Describe*",
+          "ec2:AuthorizeSecurityGroupIngress",
+          "ec2:AuthorizeSecurityGroupEgress",
+          "ec2:DeleteSecurityGroup",
+          "ec2:CreateTags",
+          "elasticloadbalancing:*",
+          "application-autoscaling:*",
+          "servicediscovery:*",
+          "route53:ChangeResourceRecordSets",
+          "route53:GetHealthCheck",
+          "route53:UpdateHealthCheck",
+          "logs:DescribeLogGroups",
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogStreams"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 # --- CloudWatch Logs ---
@@ -181,25 +177,16 @@ resource "aws_ecs_express_gateway_service" "write" {
   execution_role_arn      = aws_iam_role.ecs_execution_role.arn
   infrastructure_role_arn = aws_iam_role.ecs_infrastructure_role.arn
 
-  cpu    = 256  # 0.25 vCPU
-  memory = 512  # 0.5 GB RAM
+  cpu    = 256
+  memory = 512
 
   primary_container {
     image          = var.write_container_image
     container_port = 8080
     
-    # Environment variables (Block format for Express Mode)
     environment {
       name  = "DATABASE_URL"
       value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
-    }
-    environment {
-      name  = "TIMESTREAM_DATABASE"
-      value = var.timestream_db
-    }
-    environment {
-      name  = "TIMESTREAM_TABLE"
-      value = var.timestream_table
     }
     environment {
       name  = "EVENT_BUS_NAME"
@@ -207,7 +194,7 @@ resource "aws_ecs_express_gateway_service" "write" {
     }
     environment {
       name  = "ACCESS_SESSIONS_TABLE"
-      value = var.session_table_name
+      value = var.sessions_table_name
     }
     environment {
       name  = "SYSTEM_SECRET"
@@ -227,8 +214,8 @@ resource "aws_ecs_express_gateway_service" "read" {
   execution_role_arn      = aws_iam_role.ecs_execution_role.arn
   infrastructure_role_arn = aws_iam_role.ecs_infrastructure_role.arn
 
-  cpu    = 256  # 0.25 vCPU
-  memory = 512  # 0.5 GB RAM
+  cpu    = 256
+  memory = 512
 
   primary_container {
     image          = var.read_container_image
@@ -239,20 +226,12 @@ resource "aws_ecs_express_gateway_service" "read" {
       value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
     }
     environment {
-      name  = "TIMESTREAM_DATABASE"
-      value = var.timestream_db
-    }
-    environment {
-      name  = "TIMESTREAM_TABLE"
-      value = var.timestream_table
-    }
-    environment {
       name  = "EVENT_BUS_NAME"
       value = var.event_bus_name
     }
     environment {
       name  = "ACCESS_SESSIONS_TABLE"
-      value = var.session_table_name
+      value = var.sessions_table_name
     }
     environment {
       name  = "SYSTEM_SECRET"
@@ -271,32 +250,24 @@ resource "aws_ecs_express_gateway_service" "read" {
 variable "project_name" {}
 variable "vpc_id" {}
 variable "subnet_ids" {}
-variable "timestream_db" {}
-variable "timestream_table" {}
-variable "timestream_db_name" { default = "" } # Deprecated
-variable "timestream_table_name" { default = "" } # Deprecated
 variable "event_bus_name" {}
 variable "event_bus_arn" {}
 variable "read_container_image" {}
 variable "write_container_image" {}
-variable "session_table_name" {}
-variable "session_table_arn" {}
+variable "sessions_table_name" {}
+variable "sessions_table_arn" {}
 variable "db_cluster_endpoint" {}
 variable "db_password" {}
 variable "system_secret" {}
 
-output "write_service_dns" {
-  value = aws_ecs_express_gateway_service.write.lb_dns_name
+output "write_service_endpoint" {
+  value = aws_ecs_express_gateway_service.write.ingress_paths[0].endpoint
 }
 
-output "read_service_dns" {
-  value = aws_ecs_express_gateway_service.read.lb_dns_name
+output "read_service_endpoint" {
+  value = aws_ecs_express_gateway_service.read.ingress_paths[0].endpoint
 }
 
 output "app_tasks_sg_id" {
   value = aws_security_group.app_tasks.id
-}
-
-output "ecs_role_arn" {
-  value = aws_iam_role.ecs_execution_role.arn
 }

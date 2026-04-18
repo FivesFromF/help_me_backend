@@ -1,4 +1,4 @@
-# Audit Worker: EventBridge -> Timestream
+# Audit Worker: EventBridge -> DynamoDB (Audit Logs)
 resource "aws_iam_role" "audit_worker_role" {
   name = "${var.project_name}-audit-worker-role"
 
@@ -22,26 +22,26 @@ resource "aws_iam_role_policy_attachment" "audit_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-resource "aws_iam_policy" "audit_timestream" {
-  name = "${var.project_name}-audit-timestream-policy"
+resource "aws_iam_policy" "audit_dynamodb_write" {
+  name = "${var.project_name}-audit-dynamodb-write-policy"
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action   = ["timestream:WriteRecords", "timestream:DescribeEndpoints"]
+      Action   = "dynamodb:PutItem"
       Effect   = "Allow"
-      Resource = "*"
+      Resource = var.audit_table_arn
     }]
   })
 
   tags = {
     Project   = "HelpMe"
-    Component = "Policy-AuditTimestream"
+    Component = "Policy-AuditDynamoDB"
   }
 }
 
-resource "aws_iam_role_policy_attachment" "audit_timestream_attach" {
+resource "aws_iam_role_policy_attachment" "audit_dynamodb_attach" {
   role       = aws_iam_role.audit_worker_role.name
-  policy_arn = aws_iam_policy.audit_timestream.arn
+  policy_arn = aws_iam_policy.audit_dynamodb_write.arn
 }
 
 resource "aws_lambda_function" "audit_worker" {
@@ -53,8 +53,7 @@ resource "aws_lambda_function" "audit_worker" {
 
   environment {
     variables = {
-      TIMESTREAM_DATABASE = var.timestream_db
-      TIMESTREAM_TABLE    = var.timestream_table
+      AUDIT_TABLE_NAME = var.audit_table_name
     }
   }
 
@@ -88,11 +87,6 @@ resource "aws_iam_role" "notification_worker_role" {
       Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
-
-  tags = {
-    Project   = "HelpMe"
-    Component = "IAM-NotificationRole"
-  }
 }
 
 resource "aws_iam_role_policy_attachment" "notification_basic" {
@@ -110,11 +104,6 @@ resource "aws_iam_policy" "notification_sns" {
       Resource = var.sns_topic_arn
     }]
   })
-
-  tags = {
-    Project   = "HelpMe"
-    Component = "Policy-NotificationSNS"
-  }
 }
 
 resource "aws_iam_role_policy_attachment" "notification_sns_attach" {
@@ -139,11 +128,6 @@ resource "aws_lambda_function" "notification_worker" {
   lifecycle {
     ignore_changes = [filename]
   }
-
-  tags = {
-    Project   = "HelpMe"
-    Component = "Lambda-Notification"
-  }
 }
 
 resource "aws_lambda_permission" "notification_eventbridge" {
@@ -153,15 +137,6 @@ resource "aws_lambda_permission" "notification_eventbridge" {
   principal     = "events.amazonaws.com"
   source_arn    = var.event_bus_arn
 }
-
-variable "project_name" {}
-variable "timestream_db" {}
-variable "timestream_table" {}
-variable "event_bus_arn" {}
-variable "sns_topic_arn" {}
-variable "database_url" {}
-variable "session_table_arn" {}
-variable "session_table_name" {}
 
 # Grant Permission Worker: EventBridge -> DynamoDB
 resource "aws_iam_role" "grant_permission_worker_role" {
@@ -175,11 +150,6 @@ resource "aws_iam_role" "grant_permission_worker_role" {
       Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
-
-  tags = {
-    Project   = "HelpMe"
-    Component = "IAM-GrantRole"
-  }
 }
 
 resource "aws_iam_role_policy_attachment" "grant_basic" {
@@ -194,14 +164,9 @@ resource "aws_iam_policy" "grant_dynamodb" {
     Statement = [{
       Action   = "dynamodb:PutItem"
       Effect   = "Allow"
-      Resource = var.session_table_arn
+      Resource = var.sessions_table_arn
     }]
   })
-
-  tags = {
-    Project   = "HelpMe"
-    Component = "Policy-GrantDynamoDB"
-  }
 }
 
 resource "aws_iam_role_policy_attachment" "grant_dynamodb_attach" {
@@ -218,17 +183,12 @@ resource "aws_lambda_function" "grant_permission_worker" {
 
   environment {
     variables = {
-      ACCESS_SESSIONS_TABLE = var.session_table_name
+      ACCESS_SESSIONS_TABLE = var.sessions_table_name
     }
   }
 
   lifecycle {
     ignore_changes = [filename]
-  }
-
-  tags = {
-    Project   = "HelpMe"
-    Component = "Lambda-Grant"
   }
 }
 
@@ -239,6 +199,17 @@ resource "aws_lambda_permission" "grant_eventbridge" {
   principal     = "events.amazonaws.com"
   source_arn    = var.event_bus_arn
 }
+
+# --- Variables & Outputs ---
+
+variable "project_name" {}
+variable "event_bus_arn" {}
+variable "sns_topic_arn" {}
+variable "database_url" {}
+variable "sessions_table_arn" {}
+variable "sessions_table_name" {}
+variable "audit_table_arn" {}
+variable "audit_table_name" {}
 
 output "audit_lambda_arn" {
   value = aws_lambda_function.audit_worker.arn

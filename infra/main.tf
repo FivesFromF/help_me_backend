@@ -15,12 +15,6 @@ module "vpc" {
   vpc_cidr     = var.vpc_cidr
 }
 
-module "timestream" {
-  source = "./modules/timestream"
-
-  project_name = var.project_name
-}
-
 module "dynamodb" {
   source = "./modules/dynamodb"
 
@@ -45,14 +39,14 @@ module "eventbridge" {
 module "lambda" {
   source = "./modules/lambda"
 
-  project_name     = var.project_name
-  timestream_db    = module.timestream.database_name
-  timestream_table = module.timestream.table_name
-  event_bus_arn    = module.eventbridge.bus_arn
-  sns_topic_arn    = module.sns.topic_arn
-  database_url     = "postgres://adminuser:${var.db_password}@${module.rds.cluster_endpoint}:5432/helpme"
-  session_table_arn  = module.dynamodb.table_arn
-  session_table_name = module.dynamodb.table_name
+  project_name       = var.project_name
+  event_bus_arn      = module.eventbridge.bus_arn
+  sns_topic_arn      = module.sns.topic_arn
+  database_url       = "postgres://adminuser:${var.db_password}@${module.rds.cluster_endpoint}:5432/helpme"
+  sessions_table_arn  = module.dynamodb.sessions_table_arn
+  sessions_table_name = module.dynamodb.sessions_table_name
+  audit_table_arn     = module.dynamodb.audit_table_arn
+  audit_table_name    = module.dynamodb.audit_table_name
 }
 
 module "auth" {
@@ -74,20 +68,18 @@ module "authorizer" {
 module "ecs" {
   source = "./modules/ecs"
 
-  project_name       = var.project_name
-  vpc_id             = module.vpc.vpc_id
-  subnet_ids         = module.vpc.public_subnets
-  read_container_image  = var.read_container_image
-  write_container_image = var.write_container_image
-  timestream_db      = module.timestream.database_name
-  timestream_table   = module.timestream.table_name
-  event_bus_name     = module.eventbridge.bus_name
-  event_bus_arn      = module.eventbridge.bus_arn
-  session_table_name = module.dynamodb.table_name
-  session_table_arn  = module.dynamodb.table_arn
-  db_cluster_endpoint = module.rds.cluster_endpoint
-  db_password        = var.db_password
-  system_secret      = var.system_secret
+  project_name          = var.project_name
+  vpc_id                = module.vpc.vpc_id
+  subnet_ids            = module.vpc.public_subnets
+  read_container_image     = var.read_container_image
+  write_container_image    = var.write_container_image
+  event_bus_name        = module.eventbridge.bus_name
+  event_bus_arn         = module.eventbridge.bus_arn
+  sessions_table_name   = module.dynamodb.sessions_table_name
+  sessions_table_arn    = module.dynamodb.sessions_table_arn
+  db_cluster_endpoint   = module.rds.cluster_endpoint
+  db_password           = var.db_password
+  system_secret         = var.system_secret
 }
 
 module "rds" {
@@ -104,7 +96,9 @@ module "apigateway" {
   source = "./modules/apigateway"
 
   project_name      = var.project_name
-  write_service_dns = module.ecs.write_service_dns
-  read_service_dns  = module.ecs.read_service_dns
+  write_service_endpoint = module.ecs.write_service_endpoint
+  read_service_endpoint  = module.ecs.read_service_endpoint
   authorizer_uri    = module.authorizer.authorizer_uri
 }
+
+data "aws_caller_identity" "current" {}

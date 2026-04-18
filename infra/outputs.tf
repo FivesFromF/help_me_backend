@@ -3,7 +3,17 @@ output "api_endpoint" {
   value       = module.apigateway.api_endpoint
 }
 
-output "alb_dns_name" {
-  description = "The DNS name of the ALB"
-  value       = module.ecs.alb_dns_name
+output "write_service_endpoint" {
+  description = "The endpoint for the Write service"
+  value       = module.ecs.write_service_endpoint
+}
+
+output "read_service_endpoint" {
+  description = "The endpoint for the Read service"
+  value       = module.ecs.read_service_endpoint
+}
+
+output "audit_logs_table" {
+  description = "The DynamoDB table for audit logs"
+  value       = module.dynamodb.audit_table_name
 }
