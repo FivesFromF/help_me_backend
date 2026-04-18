@@ -92,13 +92,13 @@ func (s *CitizenServer) Register(
 	}
 
 	// 6. Publish Audit Events
-	_ = s.cloudRepo.PublishEvent(ctx, "citizen.created", map[string]string{
+	_ = s.cloudRepo.PublishSystemEvent(ctx, "citizen.created", map[string]string{
 		"citizen_id": utils.UUIDToString(citizen.ID),
 		"action":     "CREATE",
 		"reason":     "New registration",
 	})
 
-	_ = s.cloudRepo.PublishEvent(ctx, "consent.granted", map[string]string{
+	_ = s.cloudRepo.PublishSystemEvent(ctx, "consent.granted", map[string]string{
 		"citizen_id": utils.UUIDToString(citizen.ID),
 		"action":     "CONSENT",
 		"reason":     "Standard terms agreement",
@@ -161,7 +161,7 @@ func (s *CitizenServer) VerifyIdentity(
 
 	// Publish Identification Event for Auditing and Notifications
 	staffID := "unknown" // In real world, extract from request context/authorizer
-	_ = s.cloudRepo.PublishEvent(ctx, "victim.identified", map[string]string{
+	_ = s.cloudRepo.PublishEmergencyEvent(ctx, "victim.identified", map[string]string{
 		"staff_id":   staffID,
 		"citizen_id": citizenID,
 		"method":     method,
@@ -214,7 +214,7 @@ func (s *CitizenServer) SearchByFace(
 	// Publish Identification Event (Identification Category)
 	// This event now triggers Grant Permission Worker asynchronously
 	staffID := "unknown" // Extract from context/authorizer in production
-	_ = s.cloudRepo.PublishEvent(ctx, "victim.identified", map[string]string{
+	_ = s.cloudRepo.PublishEmergencyEvent(ctx, "victim.identified", map[string]string{
 		"staff_id":   staffID,
 		"citizen_id": utils.UUIDToString(bestMatch.ID),
 		"method":     "FACE_SEARCH",
@@ -287,7 +287,7 @@ func (s *CitizenServer) GetProfile(ctx context.Context, req *connect.Request[hel
 	// Publish Audit Event (CRUD Read & Medical Access)
 	// For MVP, we assume the requester might be the citizen themselves or an authorized staff
 	staffID := "unknown" 
-	_ = s.cloudRepo.PublishEvent(ctx, "access.medical_record", map[string]string{
+	_ = s.cloudRepo.PublishSystemEvent(ctx, "access.medical_record", map[string]string{
 		"staff_id":   staffID,
 		"citizen_id": req.Msg.Id,
 		"action":     "READ",
@@ -321,7 +321,7 @@ func (s *CitizenServer) UpdateProfile(ctx context.Context, req *connect.Request[
 	}
 
 	// Publish Audit Event (CRUD Update)
-	_ = s.cloudRepo.PublishEvent(ctx, "citizen.updated", map[string]string{
+	_ = s.cloudRepo.PublishSystemEvent(ctx, "citizen.updated", map[string]string{
 		"citizen_id": utils.UUIDToString(citizen.ID),
 		"action":     "UPDATE",
 		"reason":     "Profile update",

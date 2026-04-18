@@ -32,13 +32,14 @@ func main() {
 	defer store.Close()
 
 	// Initialize Cloud Repository (DynamoDB & EventBridge)
-	ebBus := os.Getenv("EVENT_BUS_NAME")
+	systemBus := os.Getenv("CORE_SYSTEM_BUS_NAME")
+	emergencyBus := os.Getenv("EMERGENCY_BUS_NAME")
 	ddbTable := os.Getenv("ACCESS_SESSIONS_TABLE")
-	if ebBus == "" || ddbTable == "" {
-		fmt.Println("EVENT_BUS_NAME and ACCESS_SESSIONS_TABLE must be set")
+	if systemBus == "" || emergencyBus == "" || ddbTable == "" {
+		fmt.Println("CORE_SYSTEM_BUS_NAME, EMERGENCY_BUS_NAME and ACCESS_SESSIONS_TABLE must be set")
 		os.Exit(1)
 	}
-	cloudRepo, err := repository.NewCloudRepository(ctx, ddbTable, ebBus)
+	cloudRepo, err := repository.NewCloudRepository(ctx, ddbTable, systemBus, emergencyBus)
 	if err != nil {
 		fmt.Printf("Failed to connect to AWS Cloud services: %v\n", err)
 		os.Exit(1)

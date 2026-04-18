@@ -54,7 +54,7 @@ func (s *HealthcareServer) GetData(
 	}
 
 	// 3. Publish Audit Event to EventBridge (Decoupled Logging)
-	_ = s.cloudRepo.PublishEvent(ctx, "access.medical_record", map[string]string{
+	_ = s.cloudRepo.PublishSystemEvent(ctx, "access.medical_record", map[string]string{
 		"staff_id":   staffID,
 		"citizen_id": req.Msg.CitizenId,
 		"action":     "READ",

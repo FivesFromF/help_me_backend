@@ -37,9 +37,6 @@ func HandleRequest(ctx context.Context, event events.CloudWatchEvent) error {
 	victimName := detail["full_name"]
 	citizenID := detail["citizen_id"]
 
-	// In a real scenario, we would query RDS here to find emergency contacts for citizenID.
-	// For MVP, we send an alert to the system topic.
-	
 	message := fmt.Sprintf("EMERGENCY ALERT: Victim %s (ID: %s) has been identified by medical staff. Emergency contacts are being notified.", victimName, citizenID)
 
 	_, err := snsClient.Publish(ctx, &sns.PublishInput{

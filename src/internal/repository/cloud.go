@@ -16,10 +16,11 @@ import (
 )
 
 type CloudRepository struct {
-	dbClient   *dynamodb.Client
-	ebClient   *eventbridge.Client
-	tableName  string
-	busName    string
+	dbClient         *dynamodb.Client
+	ebClient         *eventbridge.Client
+	tableName        string
+	systemBusName    string
+	emergencyBusName string
 }
 
 type SessionRecord struct {
@@ -27,17 +28,18 @@ type SessionRecord struct {
 	ExpiresAt int64  `dynamodbav:"expires_at"`
 }
 
-func NewCloudRepository(ctx context.Context, tableName, busName string) (*CloudRepository, error) {
+func NewCloudRepository(ctx context.Context, tableName, systemBus, emergencyBus string) (*CloudRepository, error) {
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to load AWS config: %w", err)
 	}
 
 	return &CloudRepository{
-		dbClient:  dynamodb.NewFromConfig(cfg),
-		ebClient:  eventbridge.NewFromConfig(cfg),
-		tableName: tableName,
-		busName:   busName,
+		dbClient:         dynamodb.NewFromConfig(cfg),
+		ebClient:         eventbridge.NewFromConfig(cfg),
+		tableName:        tableName,
+		systemBusName:    systemBus,
+		emergencyBusName: emergencyBus,
 	}, nil
 }
 
@@ -90,8 +92,17 @@ func (r *CloudRepository) CheckAccessSession(ctx context.Context, staffID, citiz
 	return record.ExpiresAt > time.Now().Unix(), nil
 }
 
-// Event Publishing (EventBridge)
-func (r *CloudRepository) PublishEvent(ctx context.Context, detailType string, detail interface{}) error {
+// Event Publishing (EventBridge) - System Bus
+func (r *CloudRepository) PublishSystemEvent(ctx context.Context, detailType string, detail interface{}) error {
+	return r.publishToBus(ctx, r.systemBusName, detailType, detail)
+}
+
+// Event Publishing (EventBridge) - Emergency Bus
+func (r *CloudRepository) PublishEmergencyEvent(ctx context.Context, detailType string, detail interface{}) error {
+	return r.publishToBus(ctx, r.emergencyBusName, detailType, detail)
+}
+
+func (r *CloudRepository) publishToBus(ctx context.Context, busName, detailType string, detail interface{}) error {
 	detailJSON, err := json.Marshal(detail)
 	if err != nil {
 		return err
@@ -103,9 +114,14 @@ func (r *CloudRepository) PublishEvent(ctx context.Context, detailType string, d
 				Source:       aws.String("helpme.backend"),
 				DetailType:   aws.String(detailType),
 				Detail:       aws.String(string(detailJSON)),
-				EventBusName: aws.String(r.busName),
+				EventBusName: aws.String(busName),
 			},
 		},
 	})
 	return err
+}
+
+// Deprecated: Use PublishSystemEvent or PublishEmergencyEvent
+func (r *CloudRepository) PublishEvent(ctx context.Context, detailType string, detail interface{}) error {
+	return r.PublishSystemEvent(ctx, detailType, detail)
 }
