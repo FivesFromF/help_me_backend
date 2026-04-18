@@ -1,3 +1,4 @@
+resource "aws_timestreamwrite_database" "audit" {
   database_name = "${var.project_name}-audit"
 
   tags = {
