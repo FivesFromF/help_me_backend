@@ -286,11 +286,11 @@ variable "db_password" {}
 variable "system_secret" {}
 
 output "write_service_dns" {
-  value = aws_ecs_express_gateway_service.write.ingress_paths[0].host
+  value = aws_ecs_express_gateway_service.write.lb_dns_name
 }
 
 output "read_service_dns" {
-  value = aws_ecs_express_gateway_service.read.ingress_paths[0].host
+  value = aws_ecs_express_gateway_service.read.lb_dns_name
 }
 
 output "app_tasks_sg_id" {
