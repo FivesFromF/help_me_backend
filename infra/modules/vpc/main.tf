@@ -58,3 +58,5 @@ output "vpc_id" {
 output "public_subnets" {
   value = aws_subnet.public[*].id
 }
+variable "project_name" {}
+variable "vpc_cidr" {}
