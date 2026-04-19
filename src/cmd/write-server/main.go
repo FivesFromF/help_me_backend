@@ -38,6 +38,13 @@ func main() {
 	}
 	defer store.Close()
 
+	// Auto-Migrate Schema
+	if err := store.Migrate(ctx, "api/schema/schema.sql"); err != nil {
+		fmt.Printf("Warning: Database migration failed: %v\n", err)
+		// Non-blocking in case extensions already exist or minor errors, 
+		// but critical errors will still cause failure later.
+	}
+
 	// Initialize Cloud Repository (DynamoDB & EventBridge)
 	systemBus := os.Getenv("CORE_SYSTEM_BUS_NAME")
 	emergencyBus := os.Getenv("EMERGENCY_BUS_NAME")
@@ -79,7 +86,7 @@ func main() {
 	// Initialize Servers
 	citizenServer := services.NewCitizenServer(store, cloudRepo, systemSecret)
 	emergencyServer := services.NewEmergencyServer(store)
-	authServer := services.NewAuthServer(store)
+	authServer := services.NewAuthServer(store, cognitoClient)
 	adminServer := services.NewAdminServer(store, cognitoClient, dynamicClient, auditTable, userPoolID)
 
 	mux := http.NewServeMux()

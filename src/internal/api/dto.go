@@ -47,15 +47,18 @@ type AdminProfile struct {
 // ========= AUTH =========
 
 type SignInRequest struct {
-	AccessToken string `json:"accessToken"`
+	AccessToken string `json:"accessToken,omitempty"`
+	Email       string `json:"email,omitempty"`
+	Password    string `json:"password,omitempty"`
 }
 
 // SignInResponse returns the profile based on Cognito Group
 type SignInResponse struct {
-	Role    string          `json:"role"` // "citizen" | "staff" | "admin"
-	Citizen *CitizenProfile `json:"citizen,omitempty"`
-	Staff   *StaffProfile   `json:"staff,omitempty"`
-	Admin   *AdminProfile   `json:"admin,omitempty"`
+	AccessToken string          `json:"accessToken,omitempty"`
+	Role        string          `json:"role"` // "citizen" | "staff" | "admin"
+	Citizen     *CitizenProfile `json:"citizen,omitempty"`
+	Staff       *StaffProfile   `json:"staff,omitempty"`
+	Admin       *AdminProfile   `json:"admin,omitempty"`
 }
 
 // ========= CITIZEN - REGISTER (Complete Profile) =========

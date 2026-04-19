@@ -4,11 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
+	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider/types"
 	"github.com/fivesfromf/helpme/internal/api"
 	"github.com/fivesfromf/helpme/internal/repository"
 	"github.com/fivesfromf/helpme/internal/repository/sqlc"
@@ -16,11 +20,17 @@ import (
 )
 
 type AuthServer struct {
-	store *repository.Store
+	store         *repository.Store
+	cognitoClient *cognitoidentityprovider.Client
+	appClientID   string
 }
 
-func NewAuthServer(store *repository.Store) *AuthServer {
-	return &AuthServer{store: store}
+func NewAuthServer(store *repository.Store, cognitoClient *cognitoidentityprovider.Client) *AuthServer {
+	return &AuthServer{
+		store:         store,
+		cognitoClient: cognitoClient,
+		appClientID:   os.Getenv("COGNITO_CLIENT_ID"),
+	}
 }
 
 // SignIn handles Google token exchange.
@@ -33,9 +43,35 @@ func (s *AuthServer) SignIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	accessToken := req.AccessToken
+
+	// If Email/Password provided, exchange for a token first
+	if req.Email != "" && req.Password != "" {
+		output, err := s.cognitoClient.InitiateAuth(r.Context(), &cognitoidentityprovider.InitiateAuthInput{
+			AuthFlow: types.AuthFlowTypeUserPasswordAuth,
+			ClientId: aws.String(s.appClientID),
+			AuthParameters: map[string]string{
+				"USERNAME": req.Email,
+				"PASSWORD": req.Password,
+			},
+		})
+		if err != nil {
+			utils.WriteError(w, http.StatusUnauthorized, fmt.Sprintf("authentication failed: %v", err))
+			return
+		}
+		if output.AuthenticationResult != nil {
+			accessToken = *output.AuthenticationResult.AccessToken
+		}
+	}
+
+	if accessToken == "" {
+		utils.WriteError(w, http.StatusBadRequest, "access token or credentials required")
+		return
+	}
+
 	// Parse JWT (unverified — signature is verified by API Gateway Authorizer)
 	claims := jwt.MapClaims{}
-	_, _, err := new(jwt.Parser).ParseUnverified(req.AccessToken, claims)
+	_, _, err := new(jwt.Parser).ParseUnverified(accessToken, claims)
 	if err != nil {
 		utils.WriteError(w, http.StatusUnauthorized, "invalid token format")
 		return
@@ -53,15 +89,15 @@ func (s *AuthServer) SignIn(w http.ResponseWriter, r *http.Request) {
 
 	switch role {
 	case "admin":
-		s.handleAdminSignIn(w, r, cognitoID, email, name)
+		s.handleAdminSignIn(w, r, accessToken, cognitoID, email, name)
 	case "staff":
-		s.handleStaffSignIn(w, r, cognitoID, email, name)
+		s.handleStaffSignIn(w, r, accessToken, cognitoID, email, name)
 	default: // "citizen"
-		s.handleCitizenSignIn(w, r, cognitoID, email, name)
+		s.handleCitizenSignIn(w, r, accessToken, cognitoID, email, name)
 	}
 }
 
-func (s *AuthServer) handleCitizenSignIn(w http.ResponseWriter, r *http.Request, cognitoID, email, name string) {
+func (s *AuthServer) handleCitizenSignIn(w http.ResponseWriter, r *http.Request, accessToken, cognitoID, email, name string) {
 	citizen, err := s.store.GetCitizenByCognitoID(r.Context(), cognitoID)
 	if err != nil {
 		if strings.Contains(err.Error(), "no rows in result set") {
@@ -86,12 +122,13 @@ func (s *AuthServer) handleCitizenSignIn(w http.ResponseWriter, r *http.Request,
 	}
 
 	utils.WriteJSON(w, http.StatusOK, api.SignInResponse{
-		Role:    "citizen",
-		Citizen: mapCitizenToProfile(citizen),
+		AccessToken: accessToken,
+		Role:        "citizen",
+		Citizen:     mapCitizenToProfile(citizen),
 	})
 }
 
-func (s *AuthServer) handleStaffSignIn(w http.ResponseWriter, r *http.Request, cognitoID, email, name string) {
+func (s *AuthServer) handleStaffSignIn(w http.ResponseWriter, r *http.Request, accessToken, cognitoID, email, name string) {
 	staff, err := s.store.GetStaffByCognitoID(r.Context(), cognitoID)
 	if err != nil {
 		utils.WriteError(w, http.StatusNotFound, "staff record not found — contact admin")
@@ -99,12 +136,13 @@ func (s *AuthServer) handleStaffSignIn(w http.ResponseWriter, r *http.Request, c
 	}
 
 	utils.WriteJSON(w, http.StatusOK, api.SignInResponse{
-		Role:  "staff",
-		Staff: mapStaffToProfile(staff),
+		AccessToken: accessToken,
+		Role:        "staff",
+		Staff:       mapStaffToProfile(staff),
 	})
 }
 
-func (s *AuthServer) handleAdminSignIn(w http.ResponseWriter, r *http.Request, cognitoID, email, name string) {
+func (s *AuthServer) handleAdminSignIn(w http.ResponseWriter, r *http.Request, accessToken, cognitoID, email, name string) {
 	admin, err := s.store.GetAdminByCognitoID(r.Context(), cognitoID)
 	if err != nil {
 		if strings.Contains(err.Error(), "no rows in result set") {
@@ -126,8 +164,9 @@ func (s *AuthServer) handleAdminSignIn(w http.ResponseWriter, r *http.Request, c
 	}
 
 	utils.WriteJSON(w, http.StatusOK, api.SignInResponse{
-		Role:  "admin",
-		Admin: mapAdminToProfile(admin),
+		AccessToken: accessToken,
+		Role:        "admin",
+		Admin:       mapAdminToProfile(admin),
 	})
 }
 

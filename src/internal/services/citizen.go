@@ -76,9 +76,10 @@ func (s *CitizenServer) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Handle face embedding
 	if len(req.FaceVector) > 0 {
+		vec := pgvector.NewVector(req.FaceVector)
 		_ = s.store.UpdateCitizenFaceEmbedding(r.Context(), sqlc.UpdateCitizenFaceEmbeddingParams{
 			ID:            citizen.ID,
-			FaceEmbedding: pgvector.NewVector(req.FaceVector),
+			FaceEmbedding: &vec,
 		})
 	}
 
@@ -181,7 +182,7 @@ func (s *CitizenServer) SearchByFace(w http.ResponseWriter, r *http.Request) {
 
 	vec := pgvector.NewVector(req.FaceVector)
 	hits, err := s.store.SearchCitizenByFace(r.Context(), sqlc.SearchCitizenByFaceParams{
-		FaceEmbedding: vec,
+		FaceEmbedding: &vec,
 		Limit:         1,
 	})
 	if err != nil || len(hits) == 0 {

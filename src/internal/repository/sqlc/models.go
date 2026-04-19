@@ -6,7 +6,7 @@ package sqlc
 
 import (
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/pgvector/pgvector-go"
+	pgv "github.com/pgvector/pgvector-go"
 )
 
 type Admins struct {
@@ -30,7 +30,7 @@ type Citizens struct {
 	Gender            pgtype.Text        `json:"gender"`
 	Address           pgtype.Text        `json:"address"`
 	CccdNumber        pgtype.Text        `json:"cccd_number"`
-	FaceEmbedding     pgvector.Vector    `json:"face_embedding"`
+	FaceEmbedding     *pgv.Vector        `json:"face_embedding"`
 	EmergencyContacts []byte             `json:"emergency_contacts"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`

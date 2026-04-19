@@ -9,7 +9,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/pgvector/pgvector-go"
+	pgv "github.com/pgvector/pgvector-go"
 )
 
 const countAdmins = `-- name: CountAdmins :one
@@ -663,8 +663,8 @@ LIMIT $2
 `
 
 type SearchCitizenByFaceParams struct {
-	FaceEmbedding pgvector.Vector `json:"face_embedding"`
-	Limit         int32           `json:"limit"`
+	FaceEmbedding *pgv.Vector `json:"face_embedding"`
+	Limit         int32       `json:"limit"`
 }
 
 type SearchCitizenByFaceRow struct {
@@ -761,8 +761,8 @@ UPDATE citizens SET face_embedding = $2 WHERE id = $1
 `
 
 type UpdateCitizenFaceEmbeddingParams struct {
-	ID            pgtype.UUID     `json:"id"`
-	FaceEmbedding pgvector.Vector `json:"face_embedding"`
+	ID            pgtype.UUID `json:"id"`
+	FaceEmbedding *pgv.Vector `json:"face_embedding"`
 }
 
 func (q *Queries) UpdateCitizenFaceEmbedding(ctx context.Context, arg UpdateCitizenFaceEmbeddingParams) error {

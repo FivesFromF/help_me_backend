@@ -13,7 +13,11 @@ sql:
         emit_interface: true
         emit_exact_table_names: true
         overrides:
-          - db_type: "vector"
-            go_type: "github.com/pgvector/pgvector-go.Vector"
+          - column: "citizens.face_embedding"
+            go_type:
+              import: "github.com/pgvector/pgvector-go"
+              package: "pgv"
+              type: "Vector"
+              pointer: true
           - db_type: "date"
             go_type: "time.Time"
