@@ -67,6 +67,12 @@ func main() {
 	mux.HandleFunc("POST /healthcare/data", healthcareServer.GetData)
 	// LogAccess is handled natively inside GetData but exists as an endpoint
 	// mux.HandleFunc("POST /healthcare/log", healthcareServer.LogAccess)
+	
+	// Health Check
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
 
 	fmt.Println("HelpMe READ Service (Refined + Cloud) starting on :8080...")
 	http.ListenAndServe(

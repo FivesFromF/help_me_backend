@@ -101,6 +101,12 @@ func main() {
 	mux.HandleFunc("POST /admin/logs", adminServer.ListAuditLogs)
 	mux.HandleFunc("POST /admin/staff/register", adminServer.RegisterStaff)
 	mux.HandleFunc("POST /admin/staff/manage", adminServer.ManageStaff)
+	
+	// 5. Health Check
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
 
 	fmt.Println("HelpMe WRITE Service (Refined + Cloud) starting on :8080...")
 	http.ListenAndServe(

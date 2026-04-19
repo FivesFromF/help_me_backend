@@ -180,7 +180,7 @@ resource "aws_lb_target_group" "write" {
   target_type = "ip"
 
   health_check {
-    path                = "/request-otp" # Basic health check on a public route
+    path                = "/health"
     interval            = 30
     timeout             = 5
     healthy_threshold   = 2
@@ -196,7 +196,7 @@ resource "aws_lb_target_group" "read" {
   target_type = "ip"
 
   health_check {
-    path                = "/citizen/verify" # Placeholder, will return 401 but indicates live server
+    path                = "/health"
     interval            = 30
     timeout             = 5
     healthy_threshold   = 2
@@ -227,8 +227,8 @@ resource "aws_lb_listener" "read" {
 }
 
 # --- CloudWatch Logs ---
-resource "aws_cloudwatch_log_group" "express" {
-  name              = "/ecs/${var.project_name}-express"
+resource "aws_cloudwatch_log_group" "services" {
+  name              = "/ecs/${var.project_name}-services"
   retention_in_days = 7
 
   tags = {
@@ -259,7 +259,7 @@ resource "aws_ecs_task_definition" "write" {
     logConfiguration = {
       logDriver = "awslogs"
       options = {
-        "awslogs-group"         = aws_cloudwatch_log_group.express.name
+        "awslogs-group"         = aws_cloudwatch_log_group.services.name
         "awslogs-region"        = "ap-southeast-1"
         "awslogs-stream-prefix" = "write"
       }
@@ -269,7 +269,10 @@ resource "aws_ecs_task_definition" "write" {
       { name = "CORE_SYSTEM_BUS_NAME", value = var.system_bus_name },
       { name = "DATABASE_URL", value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme" },
       { name = "EMERGENCY_BUS_NAME", value = var.emergency_bus_name },
-      { name = "SYSTEM_SECRET", value = var.system_secret }
+      { name = "SYSTEM_SECRET", value = var.system_secret },
+      { name = "COGNITO_USER_POOL_ID", value = var.user_pool_id },
+      { name = "COGNITO_CLIENT_ID", value = var.client_id },
+      { name = "AUDIT_LOGS_TABLE", value = var.audit_table_name }
     ]
   }])
 
@@ -298,7 +301,7 @@ resource "aws_ecs_task_definition" "read" {
     logConfiguration = {
       logDriver = "awslogs"
       options = {
-        "awslogs-group"         = aws_cloudwatch_log_group.express.name
+        "awslogs-group"         = aws_cloudwatch_log_group.services.name
         "awslogs-region"        = "ap-southeast-1"
         "awslogs-stream-prefix" = "read"
       }
@@ -308,7 +311,10 @@ resource "aws_ecs_task_definition" "read" {
       { name = "CORE_SYSTEM_BUS_NAME", value = var.system_bus_name },
       { name = "DATABASE_URL", value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme" },
       { name = "EMERGENCY_BUS_NAME", value = var.emergency_bus_name },
-      { name = "SYSTEM_SECRET", value = var.system_secret }
+      { name = "SYSTEM_SECRET", value = var.system_secret },
+      { name = "COGNITO_USER_POOL_ID", value = var.user_pool_id },
+      { name = "COGNITO_CLIENT_ID", value = var.client_id },
+      { name = "AUDIT_LOGS_TABLE", value = var.audit_table_name }
     ]
   }])
 
@@ -386,6 +392,11 @@ variable "sessions_table_arn" {}
 variable "db_cluster_endpoint" {}
 variable "db_password" {}
 variable "system_secret" {}
+
+# Cognito & Audit
+variable "user_pool_id" {}
+variable "client_id" {}
+variable "audit_table_name" {}
 
 output "write_service_endpoint" {
   value = aws_lb.main.dns_name

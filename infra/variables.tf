@@ -50,3 +50,27 @@ variable "smtp_from" {
   description = "Email address for sending notifications"
   type        = string
 }
+
+# --- Database & Secrets ---
+variable "db_password" {
+  description = "Password for RDS PostgreSQL"
+  type        = string
+  sensitive   = true
+}
+
+variable "system_secret" {
+  description = "Secret key for HMAC/signing"
+  type        = string
+  sensitive   = true
+}
+
+# --- Container Images ---
+variable "read_container_image" {
+  description = "ECR image URL for the Read service"
+  type        = string
+}
+
+variable "write_container_image" {
+  description = "ECR image URL for the Write service"
+  type        = string
+}

@@ -31,9 +31,7 @@ resource "aws_lambda_function" "authorizer" {
     }
   }
 
-  lifecycle {
-    ignore_changes = [filename]
-  }
+  source_code_hash = filebase64sha256("${path.module}/authorizer.zip")
 }
 
 resource "aws_lambda_permission" "apigw" {

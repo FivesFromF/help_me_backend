@@ -61,6 +61,8 @@ resource "aws_cognito_user_pool_client" "client" {
 
   user_pool_id = aws_cognito_user_pool.pool.id
 
+  depends_on = [aws_cognito_identity_provider.google]
+
   # Authentication flows
   explicit_auth_flows = [
     "ALLOW_USER_PASSWORD_AUTH",
