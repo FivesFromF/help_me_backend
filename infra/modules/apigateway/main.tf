@@ -28,10 +28,11 @@ resource "aws_apigatewayv2_authorizer" "auth" {
 resource "aws_apigatewayv2_integration" "write" {
   api_id           = aws_apigatewayv2_api.main.id
   integration_type = "HTTP_PROXY"
-  integration_uri  = "http://${var.write_service_endpoint}/{proxy}"
+  integration_uri  = "http://${var.write_service_endpoint}:8081/{proxy}"
   integration_method = "ANY"
   
   request_parameters = {
+    # This strips the /write-service/ prefix before sending to ALB
     "overwrite:path" = "$request.path.proxy"
   }
 }
@@ -39,10 +40,11 @@ resource "aws_apigatewayv2_integration" "write" {
 resource "aws_apigatewayv2_integration" "read" {
   api_id           = aws_apigatewayv2_api.main.id
   integration_type = "HTTP_PROXY"
-  integration_uri  = "http://${var.read_service_endpoint}/{proxy}"
+  integration_uri  = "http://${var.read_service_endpoint}:8082/{proxy}"
   integration_method = "ANY"
 
   request_parameters = {
+    # This strips the /read-service/ prefix before sending to ALB
     "overwrite:path" = "$request.path.proxy"
   }
 }

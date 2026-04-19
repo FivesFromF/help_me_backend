@@ -11,6 +11,17 @@
 /src/*.exe
 /src/*.test
 /src/vendor/
+/src/bin/
+/src/test_sms
+/src/notification_worker.zip
+/src/twilio_worker.zip
+/src/write_server.zip
+/src/read_server.zip
+notification-worker.exe
+test_sms.go
+test_verify.go
+write-server.exe
+read-server.exe
 
 # OS/IDE
 .DS_Store

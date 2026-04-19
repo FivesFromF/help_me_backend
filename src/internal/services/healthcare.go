@@ -26,17 +26,20 @@ func NewHealthcareServer(store *repository.Store, cloudRepo *repository.CloudRep
 }
 
 func (s *HealthcareServer) GetData(w http.ResponseWriter, r *http.Request) {
-	var req api.GetMedicalRecordRequest
+	var req struct {
+		CitizenID string `json:"citizenId"`
+		StaffID   string `json:"staffId"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")
 		return
 	}
 
-	fmt.Printf("Fetching medical record for citizen: %s by staff: %s\n", req.CitizenID, req.StaffID)
+	fmt.Printf("Fetching medical record for user: %s by staff: %s\n", req.CitizenID, req.StaffID)
 
-	var citizenID pgtype.UUID
-	if err := citizenID.Scan(req.CitizenID); err != nil {
-		utils.WriteError(w, http.StatusBadRequest, fmt.Sprintf("invalid citizen_id: %v", err))
+	var userID pgtype.UUID
+	if err := userID.Scan(req.CitizenID); err != nil {
+		utils.WriteError(w, http.StatusBadRequest, fmt.Sprintf("invalid citizenId: %v", err))
 		return
 	}
 
@@ -52,13 +55,13 @@ func (s *HealthcareServer) GetData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Fetch Data from RDS
-	record, err := s.store.GetMedicalRecord(r.Context(), citizenID)
+	record, err := s.store.GetMedicalRecord(r.Context(), userID)
 	if err != nil {
 		utils.WriteError(w, http.StatusNotFound, fmt.Sprintf("medical record not found: %v", err))
 		return
 	}
 
-	// 3. Publish Audit Event to EventBridge (Decoupled Logging)
+	// 3. Publish Audit Event to EventBridge
 	_ = s.cloudRepo.PublishSystemEvent(r.Context(), "access.medical_record", map[string]string{
 		"staff_id":   req.StaffID,
 		"citizen_id": req.CitizenID,
@@ -67,15 +70,15 @@ func (s *HealthcareServer) GetData(w http.ResponseWriter, r *http.Request) {
 	})
 
 	utils.WriteJSON(w, http.StatusOK, api.GetMedicalRecordResponse{
-		Record: &api.ApiMedicalRecord{ // Use aliased internal DTO due to conflict with same package naming
-			CitizenID:           utils.UUIDToString(record.CitizenID),
+		Record: &api.MedicalRecord{
+			ID:                  utils.UUIDToString(record.CitizenID),
 			DistinguishingMarks: record.DistinguishingMarks.String,
 			BloodGroup:          record.BloodGroup.String,
 			Allergies:           record.Allergies,
 			BackgroundDiseases:  record.BackgroundDiseases,
 			CurrentMedications:  record.CurrentMedications,
 			Notes:               record.Notes.String,
-			LastUpdated:         record.LastUpdated.Time,
+			UpdatedAt:           record.LastUpdated.Time,
 		},
 	})
 }

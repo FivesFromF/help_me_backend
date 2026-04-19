@@ -11,34 +11,59 @@ import (
 )
 
 type Querier interface {
+	CountAdmins(ctx context.Context) (int64, error)
+	CountCitizens(ctx context.Context) (int64, error)
+	CountEmergencyToday(ctx context.Context) (int64, error)
+	CountStaff(ctx context.Context) (int64, error)
+	// =============================================
+	// Admin Queries
+	// =============================================
+	CreateAdmin(ctx context.Context, arg CreateAdminParams) (Admins, error)
+	// =============================================
+	// Citizens Queries
+	// =============================================
 	CreateCitizen(ctx context.Context, arg CreateCitizenParams) (Citizens, error)
+	// =============================================
+	// Emergency Reports
+	// =============================================
 	CreateEmergencyReport(ctx context.Context, arg CreateEmergencyReportParams) (EmergencyReports, error)
+	// =============================================
+	// Medical Records
+	// =============================================
 	CreateMedicalRecord(ctx context.Context, arg CreateMedicalRecordParams) (MedicalRecords, error)
+	// =============================================
+	// NFC Tags
+	// =============================================
+	CreateNFCTag(ctx context.Context, arg CreateNFCTagParams) (NfcTags, error)
+	// =============================================
+	// QR Codes
+	// =============================================
 	CreateQRCode(ctx context.Context, arg CreateQRCodeParams) (QrCodes, error)
-	CreateStaff(ctx context.Context, arg CreateStaffParams) (HealthcareStaff, error)
-	DeleteOTP(ctx context.Context, phone string) error
+	// =============================================
+	// Staff Queries
+	// =============================================
+	CreateStaff(ctx context.Context, arg CreateStaffParams) (Staff, error)
+	GetAdmin(ctx context.Context, id pgtype.UUID) (Admins, error)
+	GetAdminByCognitoID(ctx context.Context, cognitoID string) (Admins, error)
 	GetCitizen(ctx context.Context, id pgtype.UUID) (Citizens, error)
-	GetCitizenByCCCD(ctx context.Context, cccdNumber pgtype.Text) (Citizens, error)
-	GetCitizenByPhone(ctx context.Context, phone pgtype.Text) (Citizens, error)
-	GetCountCitizens(ctx context.Context) (int64, error)
-	GetCountEmergencyToday(ctx context.Context) (int64, error)
-	GetCountStaff(ctx context.Context) (int64, error)
-	GetEmergencyHistory(ctx context.Context, reporterID pgtype.UUID) ([]EmergencyReports, error)
+	GetCitizenByCognitoID(ctx context.Context, cognitoID string) (Citizens, error)
+	GetCitizenByEmail(ctx context.Context, email string) (Citizens, error)
+	GetEmergencyReport(ctx context.Context, id pgtype.UUID) (EmergencyReports, error)
 	GetMedicalRecord(ctx context.Context, citizenID pgtype.UUID) (MedicalRecords, error)
 	GetNFCTag(ctx context.Context, id string) (NfcTags, error)
-	GetOTP(ctx context.Context, phone string) (Otps, error)
 	GetQRCode(ctx context.Context, id pgtype.UUID) (QrCodes, error)
-	GetStaffByEmail(ctx context.Context, email string) (HealthcareStaff, error)
-	RegisterNFCTag(ctx context.Context, arg RegisterNFCTagParams) (NfcTags, error)
+	GetStaff(ctx context.Context, id pgtype.UUID) (Staff, error)
+	GetStaffByCognitoID(ctx context.Context, cognitoID string) (Staff, error)
+	GetStaffByEmail(ctx context.Context, email string) (Staff, error)
+	ListStaff(ctx context.Context) ([]Staff, error)
 	SearchCitizenByFace(ctx context.Context, arg SearchCitizenByFaceParams) ([]SearchCitizenByFaceRow, error)
 	UpdateCitizen(ctx context.Context, arg UpdateCitizenParams) (Citizens, error)
+	UpdateCitizenFaceEmbedding(ctx context.Context, arg UpdateCitizenFaceEmbeddingParams) error
 	UpdateMedicalRecord(ctx context.Context, arg UpdateMedicalRecordParams) (MedicalRecords, error)
 	UpdateNFCLastUsed(ctx context.Context, id string) error
-	UpdateNFCTagStatus(ctx context.Context, arg UpdateNFCTagStatusParams) (NfcTags, error)
 	UpdateQRLastUsed(ctx context.Context, id pgtype.UUID) error
-	UpdateQRStatus(ctx context.Context, arg UpdateQRStatusParams) (QrCodes, error)
-	UpdateStaffStatus(ctx context.Context, arg UpdateStaffStatusParams) error
-	UpsertOTP(ctx context.Context, arg UpsertOTPParams) error
+	UpdateStaff(ctx context.Context, arg UpdateStaffParams) (Staff, error)
+	UpdateStaffStatus(ctx context.Context, arg UpdateStaffStatusParams) (Staff, error)
 }
 
 var _ Querier = (*Queries)(nil)

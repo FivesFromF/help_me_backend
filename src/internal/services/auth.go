@@ -6,10 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
-	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider/types"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/fivesfromf/helpme/internal/api"
 	"github.com/fivesfromf/helpme/internal/repository"
@@ -18,196 +16,184 @@ import (
 )
 
 type AuthServer struct {
-	store         *repository.Store
-	cognitoClient *cognitoidentityprovider.Client
-	userPoolID    string
-	clientID      string
+	store *repository.Store
 }
 
-func NewAuthServer(store *repository.Store, cognitoClient *cognitoidentityprovider.Client, userPoolID, clientID string) *AuthServer {
-	return &AuthServer{
-		store:         store,
-		cognitoClient: cognitoClient,
-		userPoolID:    userPoolID,
-		clientID:      clientID,
-	}
+func NewAuthServer(store *repository.Store) *AuthServer {
+	return &AuthServer{store: store}
 }
 
-func (s *AuthServer) RequestOTP(w http.ResponseWriter, r *http.Request) {
-	var req api.RequestOTPRequest
+// SignIn handles Google token exchange.
+// It reads the Cognito Group from the JWT to determine role,
+// then fetches or creates the correct record in the matching table.
+func (s *AuthServer) SignIn(w http.ResponseWriter, r *http.Request) {
+	var req api.SignInRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")
+		utils.WriteError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
 
-	phone := req.Phone
-	if phone == "" {
-		utils.WriteError(w, http.StatusBadRequest, "phone number required")
-		return
-	}
-
-	// Initiate Custom Auth Flow in Cognito (Citizen: OTP only)
-	_, err := s.cognitoClient.InitiateAuth(r.Context(), &cognitoidentityprovider.InitiateAuthInput{
-		AuthFlow: types.AuthFlowTypeCustomAuth,
-		AuthParameters: map[string]string{
-			"USERNAME": phone,
-		},
-		ClientId: aws.String(s.clientID),
-	})
-
+	// Parse JWT (unverified — signature is verified by API Gateway Authorizer)
+	claims := jwt.MapClaims{}
+	_, _, err := new(jwt.Parser).ParseUnverified(req.AccessToken, claims)
 	if err != nil {
-		utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to initiate citizen auth: %v", err))
+		utils.WriteError(w, http.StatusUnauthorized, "invalid token format")
 		return
 	}
 
-	utils.WriteJSON(w, http.StatusOK, api.RequestOTPResponse{
-		Success: true,
-		Message: "OTP challenge initiated via Cognito",
-	})
+	cognitoID, _ := claims["sub"].(string)
+	email, _ := claims["email"].(string)
+	name, _ := claims["name"].(string)
+	if name == "" {
+		name = email
+	}
+
+	// Determine role from cognito:groups
+	role := extractPrimaryRole(claims)
+
+	switch role {
+	case "admin":
+		s.handleAdminSignIn(w, r, cognitoID, email, name)
+	case "staff":
+		s.handleStaffSignIn(w, r, cognitoID, email, name)
+	default: // "citizen"
+		s.handleCitizenSignIn(w, r, cognitoID, email, name)
+	}
 }
 
-func (s *AuthServer) VerifyOTP(w http.ResponseWriter, r *http.Request) {
-	var req api.VerifyOTPRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")
-		return
-	}
-
-	phone := req.Phone
-	code := req.Code
-
-	// Respond to Custom Challenge (OTP Step)
-	authResult, err := s.cognitoClient.RespondToAuthChallenge(r.Context(), &cognitoidentityprovider.RespondToAuthChallengeInput{
-		ChallengeName: types.ChallengeNameTypeCustomChallenge,
-		ChallengeResponses: map[string]string{
-			"USERNAME": phone,
-			"ANSWER":   code,
-		},
-		ClientId: aws.String(s.clientID),
-	})
-
+func (s *AuthServer) handleCitizenSignIn(w http.ResponseWriter, r *http.Request, cognitoID, email, name string) {
+	citizen, err := s.store.GetCitizenByCognitoID(r.Context(), cognitoID)
 	if err != nil {
-		utils.WriteError(w, http.StatusUnauthorized, fmt.Sprintf("invalid OTP: %v", err))
-		return
-	}
-
-	if authResult.AuthenticationResult == nil {
-		utils.WriteError(w, http.StatusUnauthorized, "authentication failed: challenge still pending")
-		return
-	}
-
-	// Fetch profile from local DB
-	if strings.Contains(phone, "@") {
-		// Staff login (using email as 'phone' parameter)
-		staff, err := s.store.GetStaffByEmail(r.Context(), phone)
-		if err != nil {
-			utils.WriteError(w, http.StatusNotFound, "staff profile not found")
-			return
-		}
-		utils.WriteJSON(w, http.StatusOK, api.VerifyOTPResponse{
-			Token:        *authResult.AuthenticationResult.IdToken,
-			StaffProfile: s.mapStaffToProfile(staff),
-		})
-		return
-	}
-
-	// Try phone (Citizens)
-	citizen, err := s.store.GetCitizenByPhone(r.Context(), pgtype.Text{String: phone, Valid: true})
-	if err != nil {
-		// New citizen: Cognito authenticated but DB profile missing.
-		// Return Token so frontend can call Register()
-		utils.WriteJSON(w, http.StatusOK, api.VerifyOTPResponse{
-			Token:   *authResult.AuthenticationResult.IdToken,
-			Profile: nil,
-		})
-		return
-	}
-
-	utils.WriteJSON(w, http.StatusOK, api.VerifyOTPResponse{
-		Token:   *authResult.AuthenticationResult.IdToken,
-		Profile: s.mapCitizenToProfile(citizen),
-	})
-}
-
-func (s *AuthServer) StaffSignIn(w http.ResponseWriter, r *http.Request) {
-	var req api.StaffSignInRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")
-		return
-	}
-
-	email := req.Email
-	password := req.Password
-
-	// 1. Kick off Custom Auth Flow
-	initInput := &cognitoidentityprovider.InitiateAuthInput{
-		AuthFlow: types.AuthFlowTypeCustomAuth,
-		AuthParameters: map[string]string{
-			"USERNAME": email,
-		},
-		ClientId: aws.String(s.clientID),
-	}
-
-	resp, err := s.cognitoClient.InitiateAuth(r.Context(), initInput)
-	if err != nil {
-		utils.WriteError(w, http.StatusUnauthorized, fmt.Sprintf("failed to initiate staff auth: %v", err))
-		return
-	}
-
-	// 2. We expect PASSWORD_VERIFIER challenge for Staff
-	if resp.ChallengeName == types.ChallengeNameTypePasswordVerifier {
-		challengeResp, err := s.cognitoClient.RespondToAuthChallenge(r.Context(), &cognitoidentityprovider.RespondToAuthChallengeInput{
-			ChallengeName: types.ChallengeNameTypePasswordVerifier,
-			ChallengeResponses: map[string]string{
-				"USERNAME": email,
-				"PASSWORD": password,
-			},
-			ClientId: aws.String(s.clientID),
-			Session:  resp.Session,
-		})
-
-		if err != nil {
-			utils.WriteError(w, http.StatusUnauthorized, fmt.Sprintf("invalid credentials: %v", err))
-			return
-		}
-
-		// 3. Now it should be CUSTOM_CHALLENGE (OTP)
-		if challengeResp.ChallengeName == types.ChallengeNameTypeCustomChallenge {
-			staff, _ := s.store.GetStaffByEmail(r.Context(), email)
-			utils.WriteJSON(w, http.StatusOK, api.StaffSignInResponse{
-				Token:   "", // No token yet, needs OTP
-				Profile: s.mapStaffToProfile(staff),
+		if strings.Contains(err.Error(), "no rows in result set") {
+			// Auto-provision: Post Confirmation Lambda already added to Cognito Group,
+			// now create the DB record
+			fmt.Printf("Auto-provisioning citizen: %s\n", email)
+			citizen, err = s.store.CreateCitizen(r.Context(), sqlc.CreateCitizenParams{
+				CognitoID: cognitoID,
+				Email:     email,
+				FullName:  name,
+				Phone:     pgtype.Text{},
+				AvatarUrl: pgtype.Text{},
 			})
+			if err != nil {
+				utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to provision citizen: %v", err))
+				return
+			}
+		} else {
+			utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to fetch citizen: %v", err))
 			return
 		}
 	}
 
-	utils.WriteError(w, http.StatusUnauthorized, "sign in failed to enter MFA stage")
+	utils.WriteJSON(w, http.StatusOK, api.SignInResponse{
+		Role:    "citizen",
+		Citizen: mapCitizenToProfile(citizen),
+	})
 }
 
-func (s *AuthServer) mapCitizenToProfile(c sqlc.Citizens) *api.CitizenProfile {
-	return &api.CitizenProfile{
-		ID:          utils.UUIDToString(c.ID),
-		FullName:    c.FullName,
-		DateOfBirth: c.DateOfBirth.Time.Format("2006-01-02"),
-		Gender:      c.Gender.String,
-		Address:     c.Address.String,
-		Email:       c.Email.String,
-		Phone:       c.Phone.String,
-		CccdNumber:  c.CccdNumber.String,
-		AvatarUrl:   c.AvatarUrl.String,
-		CreatedAt:   c.CreatedAt.Time,
+func (s *AuthServer) handleStaffSignIn(w http.ResponseWriter, r *http.Request, cognitoID, email, name string) {
+	staff, err := s.store.GetStaffByCognitoID(r.Context(), cognitoID)
+	if err != nil {
+		utils.WriteError(w, http.StatusNotFound, "staff record not found — contact admin")
+		return
+	}
+
+	utils.WriteJSON(w, http.StatusOK, api.SignInResponse{
+		Role:  "staff",
+		Staff: mapStaffToProfile(staff),
+	})
+}
+
+func (s *AuthServer) handleAdminSignIn(w http.ResponseWriter, r *http.Request, cognitoID, email, name string) {
+	admin, err := s.store.GetAdminByCognitoID(r.Context(), cognitoID)
+	if err != nil {
+		if strings.Contains(err.Error(), "no rows in result set") {
+			fmt.Printf("Auto-provisioning admin: %s\n", email)
+			admin, err = s.store.CreateAdmin(r.Context(), sqlc.CreateAdminParams{
+				CognitoID: cognitoID,
+				Email:     email,
+				FullName:  name,
+				AvatarUrl: pgtype.Text{},
+			})
+			if err != nil {
+				utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to provision admin: %v", err))
+				return
+			}
+		} else {
+			utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to fetch admin: %v", err))
+			return
+		}
+	}
+
+	utils.WriteJSON(w, http.StatusOK, api.SignInResponse{
+		Role:  "admin",
+		Admin: mapAdminToProfile(admin),
+	})
+}
+
+// extractPrimaryRole reads cognito:groups and returns the highest-priority role.
+// Precedence: admin (0) > staff (1) > citizen (2)
+func extractPrimaryRole(claims jwt.MapClaims) string {
+	groups, ok := claims["cognito:groups"].([]interface{})
+	if !ok {
+		return "citizen"
+	}
+
+	role := "citizen"
+	for _, g := range groups {
+		switch strings.ToLower(fmt.Sprintf("%v", g)) {
+		case "admin", "admins":
+			return "admin" // Highest priority, return immediately
+		case "staff":
+			role = "staff"
+		}
+	}
+	return role
+}
+
+// --------- Mappers ---------
+
+func mapCitizenToProfile(c sqlc.Citizens) *api.CitizenProfile {
+	p := &api.CitizenProfile{
+		ID:        utils.UUIDToString(c.ID),
+		CognitoID: c.CognitoID,
+		Email:     c.Email,
+		FullName:  c.FullName,
+		Phone:     c.Phone.String,
+		AvatarUrl: c.AvatarUrl.String,
+		CreatedAt: c.CreatedAt.Time,
+	}
+	if c.DateOfBirth.Valid {
+		p.DateOfBirth = c.DateOfBirth.Time.Format("2006-01-02")
+	}
+	p.Gender = c.Gender.String
+	p.Address = c.Address.String
+	p.CccdNumber = c.CccdNumber.String
+	return p
+}
+
+func mapStaffToProfile(s sqlc.Staff) *api.StaffProfile {
+	return &api.StaffProfile{
+		ID:           utils.UUIDToString(s.ID),
+		CognitoID:    s.CognitoID,
+		Email:        s.Email,
+		FullName:     s.FullName,
+		Phone:        s.Phone.String,
+		AvatarUrl:    s.AvatarUrl.String,
+		HospitalName: s.HospitalName,
+		Department:   s.Department.String,
+		Status:       s.Status,
+		CreatedAt:    s.CreatedAt.Time,
 	}
 }
 
-func (s *AuthServer) mapStaffToProfile(staff sqlc.HealthcareStaff) *api.StaffProfile {
-	return &api.StaffProfile{
-		ID:           utils.UUIDToString(staff.ID),
-		FullName:     staff.FullName,
-		Email:        staff.Email,
-		HospitalName: staff.HospitalName.String,
-		Role:         staff.Role,
-		Status:       staff.Status,
-		CreatedAt:    staff.CreatedAt.Time,
+func mapAdminToProfile(a sqlc.Admins) *api.AdminProfile {
+	return &api.AdminProfile{
+		ID:        utils.UUIDToString(a.ID),
+		CognitoID: a.CognitoID,
+		Email:     a.Email,
+		FullName:  a.FullName,
+		AvatarUrl: a.AvatarUrl.String,
+		CreatedAt: a.CreatedAt.Time,
 	}
 }

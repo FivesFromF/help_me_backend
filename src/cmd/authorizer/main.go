@@ -26,87 +26,62 @@ func main() {
 }
 
 func HandleRequest(ctx context.Context, request events.APIGatewayV2CustomAuthorizerV2Request) (AuthorizerResponse, error) {
-	// 1. Path-based Whitelist Bypass (REST Updates)
-	// We use HasSuffix to handle API Gateway stage prefixes or service prefixes.
 	reqPath := request.RequestContext.HTTP.Path
 
+	// Public paths — no token needed
 	publicPaths := []string{
-		"/request-otp",
-		"/verify-otp",
-		"/staff/sign-in",
-		"/admin/sign-in",
-		"/citizen/verify",
+		"/signin",
+		"/user/verify",
+		"/user/search",
 	}
-
 	for _, p := range publicPaths {
 		if strings.HasSuffix(reqPath, p) {
-			fmt.Printf("Authorizer: Whitelist bypass for path: %s (matched %s)\n", reqPath, p)
+			fmt.Printf("Authorizer: Whitelist bypass for: %s\n", p)
 			return AuthorizerResponse{IsAuthorized: true}, nil
 		}
 	}
 
-	fmt.Printf("Authorizer: Evaluating protected path: %s\n", reqPath)
-
-	// 2. Check for missing authentication header
+	// Token required for all other paths
 	if len(request.IdentitySource) == 0 || request.IdentitySource[0] == "" {
-		fmt.Printf("Missing Identity Source for protected path: %s\n", reqPath)
+		fmt.Printf("Authorizer: No token for protected path: %s\n", reqPath)
 		return AuthorizerResponse{IsAuthorized: false}, nil
 	}
 
-	tokenStr := request.IdentitySource[0]
-	if strings.HasPrefix(tokenStr, "Bearer ") {
-		tokenStr = strings.TrimPrefix(tokenStr, "Bearer ")
-	}
+	tokenStr := strings.TrimPrefix(request.IdentitySource[0], "Bearer ")
 
-	// For MVP: Signature verification should be added for production (checking Cognito JWKS).
 	claims := jwt.MapClaims{}
 	_, _, err := new(jwt.Parser).ParseUnverified(tokenStr, claims)
 	if err != nil {
 		return AuthorizerResponse{IsAuthorized: false}, nil
 	}
 
-	// Check Issuer (iss)
 	if claims["iss"] != cognitoEndpoint {
-		fmt.Printf("Invalid issuer: %v\n", claims["iss"])
+		fmt.Printf("Authorizer: Invalid issuer: %v\n", claims["iss"])
 		return AuthorizerResponse{IsAuthorized: false}, nil
 	}
 
-	// Check Audience (aud) or client_id
 	if claims["client_id"] != appClientID && claims["aud"] != appClientID {
-		fmt.Printf("Invalid audience: %v\n", claims["client_id"])
+		fmt.Printf("Authorizer: Invalid audience: %v\n", claims["client_id"])
 		return AuthorizerResponse{IsAuthorized: false}, nil
 	}
 
-	// Extract standard identity
-	userID := claims["sub"].(string)
+	userID := fmt.Sprintf("%v", claims["sub"])
 
-	// Role resolution priority:
-	// 1. Check "cognito:groups" for "Admins"
-	// 2. Check "custom:role" attribute
-	// 3. Default to "Citizen"
-
-	role := "Citizen"
-
-	// Check Groups (array)
+	// Extract role from Cognito Groups (Group precedence: admin > staff > citizen)
+	role := "citizen"
 	if groups, ok := claims["cognito:groups"].([]interface{}); ok {
 		for _, g := range groups {
-			if g == "Admins" {
-				role = "Admin"
+			gStr := strings.ToLower(fmt.Sprintf("%v", g))
+			if gStr == "admin" || gStr == "admins" {
+				role = "admin"
 				break
-			} else if g == "Staff" && role != "Admin" {
-				role = "Staff"
+			} else if gStr == "staff" {
+				role = "staff"
 			}
 		}
 	}
 
-	// Override if custom:role is more specific/different
-	if role == "Citizen" {
-		if r, ok := claims["custom:role"].(string); ok {
-			role = r
-		}
-	}
-
-	fmt.Printf("Authorizing user %s with role %s\n", userID, role)
+	fmt.Printf("Authorizer: user=%s role=%s path=%s\n", userID, role, reqPath)
 
 	return AuthorizerResponse{
 		IsAuthorized: true,

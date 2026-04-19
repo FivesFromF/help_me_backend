@@ -35,10 +35,49 @@ resource "aws_ecr_lifecycle_policy" "app" {
 
 # --- Security Groups ---
 
+resource "aws_security_group" "alb" {
+  name        = "${var.project_name}-alb-sg"
+  description = "Security group for ALB"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 8081
+    to_port     = 8082
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name    = "${var.project_name}-alb-sg"
+    Project = "HelpMe"
+  }
+}
+
 resource "aws_security_group" "app_tasks" {
   name        = "${var.project_name}-ecs-app-sg"
   description = "Security group for ECS app tasks"
   vpc_id      = var.vpc_id
+
+  ingress {
+    from_port       = 8080
+    to_port         = 8080
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
 
   egress {
     from_port   = 0
@@ -109,55 +148,82 @@ resource "aws_iam_role_policy_attachment" "ecs_cloud_access_attach" {
   policy_arn = aws_iam_policy.ecs_cloud_access.arn
 }
 
-resource "aws_iam_role" "ecs_infrastructure_role" {
-  name = "${var.project_name}-ecs-infra-role"
+# --- ECS Standard Infrastructure ---
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
-      Principal = { Service = "ecs.amazonaws.com" }
-    }]
-  })
+resource "aws_ecs_cluster" "main" {
+  name = "${var.project_name}-cluster"
 
   tags = {
     Project = "HelpMe"
   }
 }
 
-resource "aws_iam_role_policy" "ecs_infrastructure_role_policy" {
-  name = "${var.project_name}-ecs-infra-inline-policy"
-  role = aws_iam_role.ecs_infrastructure_role.id
+# --- Application Load Balancer ---
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = [
-          "ec2:CreateSecurityGroup",
-          "ec2:Describe*",
-          "ec2:AuthorizeSecurityGroupIngress",
-          "ec2:AuthorizeSecurityGroupEgress",
-          "ec2:DeleteSecurityGroup",
-          "ec2:CreateTags",
-          "elasticloadbalancing:*",
-          "application-autoscaling:*",
-          "servicediscovery:*",
-          "route53:ChangeResourceRecordSets",
-          "route53:GetHealthCheck",
-          "route53:UpdateHealthCheck",
-          "logs:DescribeLogGroups",
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-          "logs:DescribeLogStreams"
-        ]
-        Effect   = "Allow"
-        Resource = "*"
-      }
-    ]
-  })
+resource "aws_lb" "main" {
+  name               = "${var.project_name}-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb.id]
+  subnets            = var.subnet_ids
+
+  tags = {
+    Project = "HelpMe"
+  }
+}
+
+resource "aws_lb_target_group" "write" {
+  name        = "${var.project_name}-write-tg"
+  port        = 8080
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
+  target_type = "ip"
+
+  health_check {
+    path                = "/request-otp" # Basic health check on a public route
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+  }
+}
+
+resource "aws_lb_target_group" "read" {
+  name        = "${var.project_name}-read-tg"
+  port        = 8080
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
+  target_type = "ip"
+
+  health_check {
+    path                = "/citizen/verify" # Placeholder, will return 401 but indicates live server
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+  }
+}
+
+resource "aws_lb_listener" "write" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = "8081"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.write.arn
+  }
+}
+
+resource "aws_lb_listener" "read" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = "8082"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.read.arn
+  }
 }
 
 # --- CloudWatch Logs ---
@@ -170,99 +236,137 @@ resource "aws_cloudwatch_log_group" "express" {
   }
 }
 
-# --- ECS Express Gateway Services ---
+# --- ECS Services (Standard Fargate) ---
 
-# WRITE Service
-resource "aws_ecs_express_gateway_service" "write" {
-  service_name            = "${var.project_name}-write-v3"
-  execution_role_arn      = aws_iam_role.ecs_execution_role.arn
-  infrastructure_role_arn = aws_iam_role.ecs_infrastructure_role.arn
+# Task Definitions
+resource "aws_ecs_task_definition" "write" {
+  family                   = "${var.project_name}-write"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = 256
+  memory                   = 512
+  execution_role_arn       = aws_iam_role.ecs_execution_role.arn
+  task_role_arn            = aws_iam_role.ecs_execution_role.arn
 
-  cpu    = 256
-  memory = 512
-
-  primary_container {
-    image          = var.write_container_image
-    container_port = 8080
-    
-    environment {
-      name  = "ACCESS_SESSIONS_TABLE"
-      value = var.sessions_table_name
+  container_definitions = jsonencode([{
+    name  = "write-app"
+    image = var.write_container_image
+    portMappings = [{
+      containerPort = 8080
+      hostPort      = 8080
+      protocol      = "tcp"
+    }]
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.express.name
+        "awslogs-region"        = "ap-southeast-1"
+        "awslogs-stream-prefix" = "write"
+      }
     }
-    environment {
-      name  = "CORE_SYSTEM_BUS_NAME"
-      value = var.system_bus_name
-    }
-    environment {
-      name  = "DATABASE_URL"
-      value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
-    }
-    environment {
-      name  = "EMERGENCY_BUS_NAME"
-      value = var.emergency_bus_name
-    }
-    environment {
-      name  = "SYSTEM_SECRET"
-      value = var.system_secret
-    }
-  }
+    environment = [
+      { name = "ACCESS_SESSIONS_TABLE", value = var.sessions_table_name },
+      { name = "CORE_SYSTEM_BUS_NAME", value = var.system_bus_name },
+      { name = "DATABASE_URL", value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme" },
+      { name = "EMERGENCY_BUS_NAME", value = var.emergency_bus_name },
+      { name = "SYSTEM_SECRET", value = var.system_secret }
+    ]
+  }])
 
   tags = {
-    Project   = "HelpMe"
-    Component = "WriteService"
-  }
-
-  lifecycle {
-    ignore_changes = [
-      primary_container[0].environment
-    ]
+    Project = "HelpMe"
   }
 }
 
-# READ Service
-resource "aws_ecs_express_gateway_service" "read" {
-  service_name            = "${var.project_name}-read-v3"
-  execution_role_arn      = aws_iam_role.ecs_execution_role.arn
-  infrastructure_role_arn = aws_iam_role.ecs_infrastructure_role.arn
+resource "aws_ecs_task_definition" "read" {
+  family                   = "${var.project_name}-read"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = 256
+  memory                   = 512
+  execution_role_arn       = aws_iam_role.ecs_execution_role.arn
+  task_role_arn            = aws_iam_role.ecs_execution_role.arn
 
-  cpu    = 256
-  memory = 512
-
-  primary_container {
-    image          = var.read_container_image
-    container_port = 8080
-
-    environment {
-      name  = "ACCESS_SESSIONS_TABLE"
-      value = var.sessions_table_name
+  container_definitions = jsonencode([{
+    name  = "read-app"
+    image = var.read_container_image
+    portMappings = [{
+      containerPort = 8080
+      hostPort      = 8080
+      protocol      = "tcp"
+    }]
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.express.name
+        "awslogs-region"        = "ap-southeast-1"
+        "awslogs-stream-prefix" = "read"
+      }
     }
-    environment {
-      name  = "CORE_SYSTEM_BUS_NAME"
-      value = var.system_bus_name
-    }
-    environment {
-      name  = "DATABASE_URL"
-      value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme"
-    }
-    environment {
-      name  = "EMERGENCY_BUS_NAME"
-      value = var.emergency_bus_name
-    }
-    environment {
-      name  = "SYSTEM_SECRET"
-      value = var.system_secret
-    }
-  }
+    environment = [
+      { name = "ACCESS_SESSIONS_TABLE", value = var.sessions_table_name },
+      { name = "CORE_SYSTEM_BUS_NAME", value = var.system_bus_name },
+      { name = "DATABASE_URL", value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme" },
+      { name = "EMERGENCY_BUS_NAME", value = var.emergency_bus_name },
+      { name = "SYSTEM_SECRET", value = var.system_secret }
+    ]
+  }])
 
   tags = {
-    Project   = "HelpMe"
-    Component = "ReadService"
+    Project = "HelpMe"
+  }
+}
+
+# Services
+resource "aws_ecs_service" "write" {
+  name            = "${var.project_name}-write-service"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.write.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = var.subnet_ids
+    security_groups  = [aws_security_group.app_tasks.id]
+    assign_public_ip = true
   }
 
-  lifecycle {
-    ignore_changes = [
-      primary_container[0].environment
-    ]
+  load_balancer {
+    target_group_arn = aws_lb_target_group.write.arn
+    container_name   = "write-app"
+    container_port   = 8080
+  }
+
+  depends_on = [aws_lb_listener.write]
+
+  tags = {
+    Project = "HelpMe"
+  }
+}
+
+resource "aws_ecs_service" "read" {
+  name            = "${var.project_name}-read-service"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.read.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = var.subnet_ids
+    security_groups  = [aws_security_group.app_tasks.id]
+    assign_public_ip = true
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.read.arn
+    container_name   = "read-app"
+    container_port   = 8080
+  }
+
+  depends_on = [aws_lb_listener.read]
+
+  tags = {
+    Project = "HelpMe"
   }
 }
 
@@ -284,11 +388,11 @@ variable "db_password" {}
 variable "system_secret" {}
 
 output "write_service_endpoint" {
-  value = aws_ecs_express_gateway_service.write.ingress_paths[0].endpoint
+  value = aws_lb.main.dns_name
 }
 
 output "read_service_endpoint" {
-  value = aws_ecs_express_gateway_service.read.ingress_paths[0].endpoint
+  value = aws_lb.main.dns_name
 }
 
 output "app_tasks_sg_id" {

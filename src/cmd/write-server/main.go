@@ -79,21 +79,19 @@ func main() {
 	// Initialize Servers
 	citizenServer := services.NewCitizenServer(store, cloudRepo, systemSecret)
 	emergencyServer := services.NewEmergencyServer(store)
-	authServer := services.NewAuthServer(store, cognitoClient, userPoolID, clientID)
+	authServer := services.NewAuthServer(store)
 	adminServer := services.NewAdminServer(store, cognitoClient, dynamicClient, auditTable, userPoolID)
 
 	mux := http.NewServeMux()
 
 	// REST Route Definitions
 	// 1. Auth & Sign In
-	mux.HandleFunc("POST /request-otp", authServer.RequestOTP)
-	mux.HandleFunc("POST /verify-otp", authServer.VerifyOTP)
-	mux.HandleFunc("POST /staff-signin", authServer.StaffSignIn)
+	mux.HandleFunc("POST /signin", authServer.SignIn)
 
-	// 2. Citizen Operations
-	mux.HandleFunc("POST /citizen/register", citizenServer.Register)
-	mux.HandleFunc("POST /citizen/verify", citizenServer.VerifyIdentity)
-	mux.HandleFunc("POST /citizen/search", citizenServer.SearchByFace)
+	// 2. User Operations (Citizens)
+	mux.HandleFunc("POST /user/register", citizenServer.Register)
+	mux.HandleFunc("POST /user/verify", citizenServer.VerifyIdentity)
+	mux.HandleFunc("POST /user/search", citizenServer.SearchByFace)
 
 	// 3. Emergency Operations
 	mux.HandleFunc("POST /emergency/report", emergencyServer.ReportEmergency)

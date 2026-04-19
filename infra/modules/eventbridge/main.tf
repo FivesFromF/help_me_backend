@@ -66,6 +66,8 @@ resource "aws_cloudwatch_event_target" "notification_lambda" {
   arn            = var.notification_lambda_arn
 }
 
+
+
 resource "aws_cloudwatch_event_target" "grant_lambda" {
   rule           = aws_cloudwatch_event_rule.identification.name
   event_bus_name = aws_cloudwatch_event_bus.emergency.name

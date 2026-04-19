@@ -12,52 +12,132 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
-const createCitizen = `-- name: CreateCitizen :one
-INSERT INTO citizens (
-    full_name, date_of_birth, gender, address, email, phone, cccd_number, avatar_url, face_embedding, emergency_contacts
+const countAdmins = `-- name: CountAdmins :one
+SELECT COUNT(*) FROM admins
+`
+
+func (q *Queries) CountAdmins(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countAdmins)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countCitizens = `-- name: CountCitizens :one
+SELECT COUNT(*) FROM citizens
+`
+
+func (q *Queries) CountCitizens(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countCitizens)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countEmergencyToday = `-- name: CountEmergencyToday :one
+SELECT COUNT(*) FROM emergency_reports
+WHERE created_at >= NOW() - INTERVAL '24 hours'
+`
+
+func (q *Queries) CountEmergencyToday(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countEmergencyToday)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countStaff = `-- name: CountStaff :one
+SELECT COUNT(*) FROM staff
+`
+
+func (q *Queries) CountStaff(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countStaff)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const createAdmin = `-- name: CreateAdmin :one
+
+INSERT INTO admins (
+    cognito_id, email, full_name, avatar_url
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+    $1, $2, $3, $4
 )
-RETURNING id, full_name, date_of_birth, gender, address, email, phone, cccd_number, avatar_url, face_embedding, emergency_contacts, created_at, updated_at
+RETURNING id, cognito_id, email, full_name, avatar_url, created_at, updated_at
+`
+
+type CreateAdminParams struct {
+	CognitoID string      `json:"cognito_id"`
+	Email     string      `json:"email"`
+	FullName  string      `json:"full_name"`
+	AvatarUrl pgtype.Text `json:"avatar_url"`
+}
+
+// =============================================
+// Admin Queries
+// =============================================
+func (q *Queries) CreateAdmin(ctx context.Context, arg CreateAdminParams) (Admins, error) {
+	row := q.db.QueryRow(ctx, createAdmin,
+		arg.CognitoID,
+		arg.Email,
+		arg.FullName,
+		arg.AvatarUrl,
+	)
+	var i Admins
+	err := row.Scan(
+		&i.ID,
+		&i.CognitoID,
+		&i.Email,
+		&i.FullName,
+		&i.AvatarUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createCitizen = `-- name: CreateCitizen :one
+
+INSERT INTO citizens (
+    cognito_id, email, full_name, phone, avatar_url
+) VALUES (
+    $1, $2, $3, $4, $5
+)
+RETURNING id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, created_at, updated_at
 `
 
 type CreateCitizenParams struct {
-	FullName          string          `json:"full_name"`
-	DateOfBirth       pgtype.Date     `json:"date_of_birth"`
-	Gender            pgtype.Text     `json:"gender"`
-	Address           pgtype.Text     `json:"address"`
-	Email             pgtype.Text     `json:"email"`
-	Phone             pgtype.Text     `json:"phone"`
-	CccdNumber        pgtype.Text     `json:"cccd_number"`
-	AvatarUrl         pgtype.Text     `json:"avatar_url"`
-	FaceEmbedding     pgvector.Vector `json:"face_embedding"`
-	EmergencyContacts []byte          `json:"emergency_contacts"`
+	CognitoID string      `json:"cognito_id"`
+	Email     string      `json:"email"`
+	FullName  string      `json:"full_name"`
+	Phone     pgtype.Text `json:"phone"`
+	AvatarUrl pgtype.Text `json:"avatar_url"`
 }
 
+// =============================================
+// Citizens Queries
+// =============================================
 func (q *Queries) CreateCitizen(ctx context.Context, arg CreateCitizenParams) (Citizens, error) {
 	row := q.db.QueryRow(ctx, createCitizen,
-		arg.FullName,
-		arg.DateOfBirth,
-		arg.Gender,
-		arg.Address,
+		arg.CognitoID,
 		arg.Email,
+		arg.FullName,
 		arg.Phone,
-		arg.CccdNumber,
 		arg.AvatarUrl,
-		arg.FaceEmbedding,
-		arg.EmergencyContacts,
 	)
 	var i Citizens
 	err := row.Scan(
 		&i.ID,
+		&i.CognitoID,
+		&i.Email,
 		&i.FullName,
+		&i.Phone,
+		&i.AvatarUrl,
 		&i.DateOfBirth,
 		&i.Gender,
 		&i.Address,
-		&i.Email,
-		&i.Phone,
 		&i.CccdNumber,
-		&i.AvatarUrl,
 		&i.FaceEmbedding,
 		&i.EmergencyContacts,
 		&i.CreatedAt,
@@ -67,10 +147,11 @@ func (q *Queries) CreateCitizen(ctx context.Context, arg CreateCitizenParams) (C
 }
 
 const createEmergencyReport = `-- name: CreateEmergencyReport :one
+
 INSERT INTO emergency_reports (
-    reporter_id, victim_id, location_lat, location_lon, situation_description
+    reporter_id, victim_id, location_lat, location_lon, situation_description, status
 ) VALUES (
-    $1, $2, $3, $4, $5
+    $1, $2, $3, $4, $5, $6
 )
 RETURNING id, reporter_id, victim_id, location_lat, location_lon, situation_description, status, created_at, updated_at
 `
@@ -81,8 +162,12 @@ type CreateEmergencyReportParams struct {
 	LocationLat          string      `json:"location_lat"`
 	LocationLon          string      `json:"location_lon"`
 	SituationDescription pgtype.Text `json:"situation_description"`
+	Status               string      `json:"status"`
 }
 
+// =============================================
+// Emergency Reports
+// =============================================
 func (q *Queries) CreateEmergencyReport(ctx context.Context, arg CreateEmergencyReportParams) (EmergencyReports, error) {
 	row := q.db.QueryRow(ctx, createEmergencyReport,
 		arg.ReporterID,
@@ -90,6 +175,7 @@ func (q *Queries) CreateEmergencyReport(ctx context.Context, arg CreateEmergency
 		arg.LocationLat,
 		arg.LocationLon,
 		arg.SituationDescription,
+		arg.Status,
 	)
 	var i EmergencyReports
 	err := row.Scan(
@@ -107,8 +193,10 @@ func (q *Queries) CreateEmergencyReport(ctx context.Context, arg CreateEmergency
 }
 
 const createMedicalRecord = `-- name: CreateMedicalRecord :one
+
 INSERT INTO medical_records (
-    citizen_id, distinguishing_marks, blood_group, allergies, background_diseases, current_medications, notes
+    citizen_id, distinguishing_marks, blood_group, allergies,
+    background_diseases, current_medications, notes
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
 )
@@ -125,6 +213,9 @@ type CreateMedicalRecordParams struct {
 	Notes               pgtype.Text `json:"notes"`
 }
 
+// =============================================
+// Medical Records
+// =============================================
 func (q *Queries) CreateMedicalRecord(ctx context.Context, arg CreateMedicalRecordParams) (MedicalRecords, error) {
 	row := q.db.QueryRow(ctx, createMedicalRecord,
 		arg.CitizenID,
@@ -149,12 +240,46 @@ func (q *Queries) CreateMedicalRecord(ctx context.Context, arg CreateMedicalReco
 	return i, err
 }
 
+const createNFCTag = `-- name: CreateNFCTag :one
+
+INSERT INTO nfc_tags (id, name, status, citizen_id)
+VALUES ($1, $2, $3, $4)
+RETURNING id, name, status, citizen_id, registered_at, last_used_at
+`
+
+type CreateNFCTagParams struct {
+	ID        string      `json:"id"`
+	Name      pgtype.Text `json:"name"`
+	Status    string      `json:"status"`
+	CitizenID pgtype.UUID `json:"citizen_id"`
+}
+
+// =============================================
+// NFC Tags
+// =============================================
+func (q *Queries) CreateNFCTag(ctx context.Context, arg CreateNFCTagParams) (NfcTags, error) {
+	row := q.db.QueryRow(ctx, createNFCTag,
+		arg.ID,
+		arg.Name,
+		arg.Status,
+		arg.CitizenID,
+	)
+	var i NfcTags
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Status,
+		&i.CitizenID,
+		&i.RegisteredAt,
+		&i.LastUsedAt,
+	)
+	return i, err
+}
+
 const createQRCode = `-- name: CreateQRCode :one
-INSERT INTO qr_codes (
-    name, status, citizen_id
-) VALUES (
-    $1, $2, $3
-)
+
+INSERT INTO qr_codes (name, status, citizen_id)
+VALUES ($1, $2, $3)
 RETURNING id, name, status, citizen_id, created_at, last_used_at
 `
 
@@ -164,6 +289,9 @@ type CreateQRCodeParams struct {
 	CitizenID pgtype.UUID `json:"citizen_id"`
 }
 
+// =============================================
+// QR Codes
+// =============================================
 func (q *Queries) CreateQRCode(ctx context.Context, arg CreateQRCodeParams) (QrCodes, error) {
 	row := q.db.QueryRow(ctx, createQRCode, arg.Name, arg.Status, arg.CitizenID)
 	var i QrCodes
@@ -179,61 +307,95 @@ func (q *Queries) CreateQRCode(ctx context.Context, arg CreateQRCodeParams) (QrC
 }
 
 const createStaff = `-- name: CreateStaff :one
-INSERT INTO healthcare_staff (
-    full_name, email, password_hash, hospital_name, role, phone
+
+INSERT INTO staff (
+    cognito_id, email, full_name, phone, hospital_name, department, status
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7
 )
-RETURNING id, full_name, email, password_hash, hospital_name, role, status, phone, created_at, updated_at
+RETURNING id, cognito_id, email, full_name, phone, avatar_url, hospital_name, department, status, created_at, updated_at
 `
 
 type CreateStaffParams struct {
-	FullName     string      `json:"full_name"`
+	CognitoID    string      `json:"cognito_id"`
 	Email        string      `json:"email"`
-	PasswordHash string      `json:"password_hash"`
-	HospitalName pgtype.Text `json:"hospital_name"`
-	Role         string      `json:"role"`
+	FullName     string      `json:"full_name"`
 	Phone        pgtype.Text `json:"phone"`
+	HospitalName string      `json:"hospital_name"`
+	Department   pgtype.Text `json:"department"`
+	Status       string      `json:"status"`
 }
 
-func (q *Queries) CreateStaff(ctx context.Context, arg CreateStaffParams) (HealthcareStaff, error) {
+// =============================================
+// Staff Queries
+// =============================================
+func (q *Queries) CreateStaff(ctx context.Context, arg CreateStaffParams) (Staff, error) {
 	row := q.db.QueryRow(ctx, createStaff,
-		arg.FullName,
+		arg.CognitoID,
 		arg.Email,
-		arg.PasswordHash,
-		arg.HospitalName,
-		arg.Role,
+		arg.FullName,
 		arg.Phone,
+		arg.HospitalName,
+		arg.Department,
+		arg.Status,
 	)
-	var i HealthcareStaff
+	var i Staff
 	err := row.Scan(
 		&i.ID,
-		&i.FullName,
+		&i.CognitoID,
 		&i.Email,
-		&i.PasswordHash,
-		&i.HospitalName,
-		&i.Role,
-		&i.Status,
+		&i.FullName,
 		&i.Phone,
+		&i.AvatarUrl,
+		&i.HospitalName,
+		&i.Department,
+		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const deleteOTP = `-- name: DeleteOTP :exec
-DELETE FROM otps
-WHERE phone = $1
+const getAdmin = `-- name: GetAdmin :one
+SELECT id, cognito_id, email, full_name, avatar_url, created_at, updated_at FROM admins WHERE id = $1 LIMIT 1
 `
 
-func (q *Queries) DeleteOTP(ctx context.Context, phone string) error {
-	_, err := q.db.Exec(ctx, deleteOTP, phone)
-	return err
+func (q *Queries) GetAdmin(ctx context.Context, id pgtype.UUID) (Admins, error) {
+	row := q.db.QueryRow(ctx, getAdmin, id)
+	var i Admins
+	err := row.Scan(
+		&i.ID,
+		&i.CognitoID,
+		&i.Email,
+		&i.FullName,
+		&i.AvatarUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getAdminByCognitoID = `-- name: GetAdminByCognitoID :one
+SELECT id, cognito_id, email, full_name, avatar_url, created_at, updated_at FROM admins WHERE cognito_id = $1 LIMIT 1
+`
+
+func (q *Queries) GetAdminByCognitoID(ctx context.Context, cognitoID string) (Admins, error) {
+	row := q.db.QueryRow(ctx, getAdminByCognitoID, cognitoID)
+	var i Admins
+	err := row.Scan(
+		&i.ID,
+		&i.CognitoID,
+		&i.Email,
+		&i.FullName,
+		&i.AvatarUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getCitizen = `-- name: GetCitizen :one
-SELECT id, full_name, date_of_birth, gender, address, email, phone, cccd_number, avatar_url, face_embedding, emergency_contacts, created_at, updated_at FROM citizens
-WHERE id = $1 LIMIT 1
+SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, created_at, updated_at FROM citizens WHERE id = $1 LIMIT 1
 `
 
 func (q *Queries) GetCitizen(ctx context.Context, id pgtype.UUID) (Citizens, error) {
@@ -241,14 +403,15 @@ func (q *Queries) GetCitizen(ctx context.Context, id pgtype.UUID) (Citizens, err
 	var i Citizens
 	err := row.Scan(
 		&i.ID,
+		&i.CognitoID,
+		&i.Email,
 		&i.FullName,
+		&i.Phone,
+		&i.AvatarUrl,
 		&i.DateOfBirth,
 		&i.Gender,
 		&i.Address,
-		&i.Email,
-		&i.Phone,
 		&i.CccdNumber,
-		&i.AvatarUrl,
 		&i.FaceEmbedding,
 		&i.EmergencyContacts,
 		&i.CreatedAt,
@@ -257,24 +420,24 @@ func (q *Queries) GetCitizen(ctx context.Context, id pgtype.UUID) (Citizens, err
 	return i, err
 }
 
-const getCitizenByCCCD = `-- name: GetCitizenByCCCD :one
-SELECT id, full_name, date_of_birth, gender, address, email, phone, cccd_number, avatar_url, face_embedding, emergency_contacts, created_at, updated_at FROM citizens
-WHERE cccd_number = $1 LIMIT 1
+const getCitizenByCognitoID = `-- name: GetCitizenByCognitoID :one
+SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, created_at, updated_at FROM citizens WHERE cognito_id = $1 LIMIT 1
 `
 
-func (q *Queries) GetCitizenByCCCD(ctx context.Context, cccdNumber pgtype.Text) (Citizens, error) {
-	row := q.db.QueryRow(ctx, getCitizenByCCCD, cccdNumber)
+func (q *Queries) GetCitizenByCognitoID(ctx context.Context, cognitoID string) (Citizens, error) {
+	row := q.db.QueryRow(ctx, getCitizenByCognitoID, cognitoID)
 	var i Citizens
 	err := row.Scan(
 		&i.ID,
+		&i.CognitoID,
+		&i.Email,
 		&i.FullName,
+		&i.Phone,
+		&i.AvatarUrl,
 		&i.DateOfBirth,
 		&i.Gender,
 		&i.Address,
-		&i.Email,
-		&i.Phone,
 		&i.CccdNumber,
-		&i.AvatarUrl,
 		&i.FaceEmbedding,
 		&i.EmergencyContacts,
 		&i.CreatedAt,
@@ -283,24 +446,24 @@ func (q *Queries) GetCitizenByCCCD(ctx context.Context, cccdNumber pgtype.Text) 
 	return i, err
 }
 
-const getCitizenByPhone = `-- name: GetCitizenByPhone :one
-SELECT id, full_name, date_of_birth, gender, address, email, phone, cccd_number, avatar_url, face_embedding, emergency_contacts, created_at, updated_at FROM citizens
-WHERE phone = $1 LIMIT 1
+const getCitizenByEmail = `-- name: GetCitizenByEmail :one
+SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, created_at, updated_at FROM citizens WHERE email = $1 LIMIT 1
 `
 
-func (q *Queries) GetCitizenByPhone(ctx context.Context, phone pgtype.Text) (Citizens, error) {
-	row := q.db.QueryRow(ctx, getCitizenByPhone, phone)
+func (q *Queries) GetCitizenByEmail(ctx context.Context, email string) (Citizens, error) {
+	row := q.db.QueryRow(ctx, getCitizenByEmail, email)
 	var i Citizens
 	err := row.Scan(
 		&i.ID,
+		&i.CognitoID,
+		&i.Email,
 		&i.FullName,
+		&i.Phone,
+		&i.AvatarUrl,
 		&i.DateOfBirth,
 		&i.Gender,
 		&i.Address,
-		&i.Email,
-		&i.Phone,
 		&i.CccdNumber,
-		&i.AvatarUrl,
 		&i.FaceEmbedding,
 		&i.EmergencyContacts,
 		&i.CreatedAt,
@@ -309,79 +472,29 @@ func (q *Queries) GetCitizenByPhone(ctx context.Context, phone pgtype.Text) (Cit
 	return i, err
 }
 
-const getCountCitizens = `-- name: GetCountCitizens :one
-SELECT COUNT(*) FROM citizens
+const getEmergencyReport = `-- name: GetEmergencyReport :one
+SELECT id, reporter_id, victim_id, location_lat, location_lon, situation_description, status, created_at, updated_at FROM emergency_reports WHERE id = $1 LIMIT 1
 `
 
-func (q *Queries) GetCountCitizens(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, getCountCitizens)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const getCountEmergencyToday = `-- name: GetCountEmergencyToday :one
-SELECT COUNT(*) FROM emergency_reports
-WHERE created_at >= CURRENT_DATE
-`
-
-func (q *Queries) GetCountEmergencyToday(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, getCountEmergencyToday)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const getCountStaff = `-- name: GetCountStaff :one
-SELECT COUNT(*) FROM healthcare_staff
-`
-
-func (q *Queries) GetCountStaff(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, getCountStaff)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const getEmergencyHistory = `-- name: GetEmergencyHistory :many
-SELECT id, reporter_id, victim_id, location_lat, location_lon, situation_description, status, created_at, updated_at FROM emergency_reports
-WHERE reporter_id = $1 OR victim_id = $1
-ORDER BY created_at DESC
-`
-
-func (q *Queries) GetEmergencyHistory(ctx context.Context, reporterID pgtype.UUID) ([]EmergencyReports, error) {
-	rows, err := q.db.Query(ctx, getEmergencyHistory, reporterID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []EmergencyReports
-	for rows.Next() {
-		var i EmergencyReports
-		if err := rows.Scan(
-			&i.ID,
-			&i.ReporterID,
-			&i.VictimID,
-			&i.LocationLat,
-			&i.LocationLon,
-			&i.SituationDescription,
-			&i.Status,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+func (q *Queries) GetEmergencyReport(ctx context.Context, id pgtype.UUID) (EmergencyReports, error) {
+	row := q.db.QueryRow(ctx, getEmergencyReport, id)
+	var i EmergencyReports
+	err := row.Scan(
+		&i.ID,
+		&i.ReporterID,
+		&i.VictimID,
+		&i.LocationLat,
+		&i.LocationLon,
+		&i.SituationDescription,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getMedicalRecord = `-- name: GetMedicalRecord :one
-SELECT citizen_id, distinguishing_marks, blood_group, allergies, background_diseases, current_medications, notes, last_updated FROM medical_records
-WHERE citizen_id = $1 LIMIT 1
+SELECT citizen_id, distinguishing_marks, blood_group, allergies, background_diseases, current_medications, notes, last_updated FROM medical_records WHERE citizen_id = $1 LIMIT 1
 `
 
 func (q *Queries) GetMedicalRecord(ctx context.Context, citizenID pgtype.UUID) (MedicalRecords, error) {
@@ -401,8 +514,7 @@ func (q *Queries) GetMedicalRecord(ctx context.Context, citizenID pgtype.UUID) (
 }
 
 const getNFCTag = `-- name: GetNFCTag :one
-SELECT id, name, type, status, citizen_id, registered_at, last_used_at FROM nfc_tags
-WHERE id = $1 LIMIT 1
+SELECT id, name, status, citizen_id, registered_at, last_used_at FROM nfc_tags WHERE id = $1 LIMIT 1
 `
 
 func (q *Queries) GetNFCTag(ctx context.Context, id string) (NfcTags, error) {
@@ -411,7 +523,6 @@ func (q *Queries) GetNFCTag(ctx context.Context, id string) (NfcTags, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
-		&i.Type,
 		&i.Status,
 		&i.CitizenID,
 		&i.RegisteredAt,
@@ -420,21 +531,8 @@ func (q *Queries) GetNFCTag(ctx context.Context, id string) (NfcTags, error) {
 	return i, err
 }
 
-const getOTP = `-- name: GetOTP :one
-SELECT phone, code, expires_at FROM otps
-WHERE phone = $1 LIMIT 1
-`
-
-func (q *Queries) GetOTP(ctx context.Context, phone string) (Otps, error) {
-	row := q.db.QueryRow(ctx, getOTP, phone)
-	var i Otps
-	err := row.Scan(&i.Phone, &i.Code, &i.ExpiresAt)
-	return i, err
-}
-
 const getQRCode = `-- name: GetQRCode :one
-SELECT id, name, status, citizen_id, created_at, last_used_at FROM qr_codes
-WHERE id = $1 LIMIT 1
+SELECT id, name, status, citizen_id, created_at, last_used_at FROM qr_codes WHERE id = $1 LIMIT 1
 `
 
 func (q *Queries) GetQRCode(ctx context.Context, id pgtype.UUID) (QrCodes, error) {
@@ -451,70 +549,115 @@ func (q *Queries) GetQRCode(ctx context.Context, id pgtype.UUID) (QrCodes, error
 	return i, err
 }
 
-const getStaffByEmail = `-- name: GetStaffByEmail :one
-SELECT id, full_name, email, password_hash, hospital_name, role, status, phone, created_at, updated_at FROM healthcare_staff
-WHERE email = $1 LIMIT 1
+const getStaff = `-- name: GetStaff :one
+SELECT id, cognito_id, email, full_name, phone, avatar_url, hospital_name, department, status, created_at, updated_at FROM staff WHERE id = $1 LIMIT 1
 `
 
-func (q *Queries) GetStaffByEmail(ctx context.Context, email string) (HealthcareStaff, error) {
-	row := q.db.QueryRow(ctx, getStaffByEmail, email)
-	var i HealthcareStaff
+func (q *Queries) GetStaff(ctx context.Context, id pgtype.UUID) (Staff, error) {
+	row := q.db.QueryRow(ctx, getStaff, id)
+	var i Staff
 	err := row.Scan(
 		&i.ID,
-		&i.FullName,
+		&i.CognitoID,
 		&i.Email,
-		&i.PasswordHash,
-		&i.HospitalName,
-		&i.Role,
-		&i.Status,
+		&i.FullName,
 		&i.Phone,
+		&i.AvatarUrl,
+		&i.HospitalName,
+		&i.Department,
+		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const registerNFCTag = `-- name: RegisterNFCTag :one
-INSERT INTO nfc_tags (
-    id, name, type, status, citizen_id
-) VALUES (
-    $1, $2, $3, $4, $5
-)
-RETURNING id, name, type, status, citizen_id, registered_at, last_used_at
+const getStaffByCognitoID = `-- name: GetStaffByCognitoID :one
+SELECT id, cognito_id, email, full_name, phone, avatar_url, hospital_name, department, status, created_at, updated_at FROM staff WHERE cognito_id = $1 LIMIT 1
 `
 
-type RegisterNFCTagParams struct {
-	ID        string      `json:"id"`
-	Name      pgtype.Text `json:"name"`
-	Type      pgtype.Text `json:"type"`
-	Status    string      `json:"status"`
-	CitizenID pgtype.UUID `json:"citizen_id"`
-}
-
-func (q *Queries) RegisterNFCTag(ctx context.Context, arg RegisterNFCTagParams) (NfcTags, error) {
-	row := q.db.QueryRow(ctx, registerNFCTag,
-		arg.ID,
-		arg.Name,
-		arg.Type,
-		arg.Status,
-		arg.CitizenID,
-	)
-	var i NfcTags
+func (q *Queries) GetStaffByCognitoID(ctx context.Context, cognitoID string) (Staff, error) {
+	row := q.db.QueryRow(ctx, getStaffByCognitoID, cognitoID)
+	var i Staff
 	err := row.Scan(
 		&i.ID,
-		&i.Name,
-		&i.Type,
+		&i.CognitoID,
+		&i.Email,
+		&i.FullName,
+		&i.Phone,
+		&i.AvatarUrl,
+		&i.HospitalName,
+		&i.Department,
 		&i.Status,
-		&i.CitizenID,
-		&i.RegisteredAt,
-		&i.LastUsedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
+const getStaffByEmail = `-- name: GetStaffByEmail :one
+SELECT id, cognito_id, email, full_name, phone, avatar_url, hospital_name, department, status, created_at, updated_at FROM staff WHERE email = $1 LIMIT 1
+`
+
+func (q *Queries) GetStaffByEmail(ctx context.Context, email string) (Staff, error) {
+	row := q.db.QueryRow(ctx, getStaffByEmail, email)
+	var i Staff
+	err := row.Scan(
+		&i.ID,
+		&i.CognitoID,
+		&i.Email,
+		&i.FullName,
+		&i.Phone,
+		&i.AvatarUrl,
+		&i.HospitalName,
+		&i.Department,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listStaff = `-- name: ListStaff :many
+SELECT id, cognito_id, email, full_name, phone, avatar_url, hospital_name, department, status, created_at, updated_at FROM staff ORDER BY created_at DESC
+`
+
+func (q *Queries) ListStaff(ctx context.Context) ([]Staff, error) {
+	rows, err := q.db.Query(ctx, listStaff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Staff
+	for rows.Next() {
+		var i Staff
+		if err := rows.Scan(
+			&i.ID,
+			&i.CognitoID,
+			&i.Email,
+			&i.FullName,
+			&i.Phone,
+			&i.AvatarUrl,
+			&i.HospitalName,
+			&i.Department,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchCitizenByFace = `-- name: SearchCitizenByFace :many
-SELECT id, full_name, date_of_birth, gender, address, email, phone, cccd_number, avatar_url, face_embedding, emergency_contacts, created_at, updated_at, (face_embedding <-> $1) AS distance
+SELECT id, full_name, avatar_url, face_embedding <=> $1 AS distance
 FROM citizens
+WHERE face_embedding IS NOT NULL
 ORDER BY distance ASC
 LIMIT $2
 `
@@ -525,20 +668,10 @@ type SearchCitizenByFaceParams struct {
 }
 
 type SearchCitizenByFaceRow struct {
-	ID                pgtype.UUID        `json:"id"`
-	FullName          string             `json:"full_name"`
-	DateOfBirth       pgtype.Date        `json:"date_of_birth"`
-	Gender            pgtype.Text        `json:"gender"`
-	Address           pgtype.Text        `json:"address"`
-	Email             pgtype.Text        `json:"email"`
-	Phone             pgtype.Text        `json:"phone"`
-	CccdNumber        pgtype.Text        `json:"cccd_number"`
-	AvatarUrl         pgtype.Text        `json:"avatar_url"`
-	FaceEmbedding     pgvector.Vector    `json:"face_embedding"`
-	EmergencyContacts []byte             `json:"emergency_contacts"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	Distance          interface{}        `json:"distance"`
+	ID        pgtype.UUID `json:"id"`
+	FullName  string      `json:"full_name"`
+	AvatarUrl pgtype.Text `json:"avatar_url"`
+	Distance  interface{} `json:"distance"`
 }
 
 func (q *Queries) SearchCitizenByFace(ctx context.Context, arg SearchCitizenByFaceParams) ([]SearchCitizenByFaceRow, error) {
@@ -553,17 +686,7 @@ func (q *Queries) SearchCitizenByFace(ctx context.Context, arg SearchCitizenByFa
 		if err := rows.Scan(
 			&i.ID,
 			&i.FullName,
-			&i.DateOfBirth,
-			&i.Gender,
-			&i.Address,
-			&i.Email,
-			&i.Phone,
-			&i.CccdNumber,
 			&i.AvatarUrl,
-			&i.FaceEmbedding,
-			&i.EmergencyContacts,
-			&i.CreatedAt,
-			&i.UpdatedAt,
 			&i.Distance,
 		); err != nil {
 			return nil, err
@@ -578,61 +701,53 @@ func (q *Queries) SearchCitizenByFace(ctx context.Context, arg SearchCitizenByFa
 
 const updateCitizen = `-- name: UpdateCitizen :one
 UPDATE citizens
-SET 
-    full_name = COALESCE($2, full_name),
-    date_of_birth = COALESCE($3, date_of_birth),
-    gender = COALESCE($4, gender),
-    address = COALESCE($5, address),
-    email = COALESCE($6, email),
-    phone = COALESCE($7, phone),
-    cccd_number = COALESCE($8, cccd_number),
-    avatar_url = COALESCE($9, avatar_url),
-    face_embedding = COALESCE($10, face_embedding),
-    emergency_contacts = COALESCE($11, emergency_contacts),
-    updated_at = NOW()
+SET
+    full_name    = $2,
+    phone        = $3,
+    avatar_url   = $4,
+    date_of_birth = $5,
+    gender       = $6,
+    address      = $7,
+    cccd_number  = $8,
+    updated_at   = NOW()
 WHERE id = $1
-RETURNING id, full_name, date_of_birth, gender, address, email, phone, cccd_number, avatar_url, face_embedding, emergency_contacts, created_at, updated_at
+RETURNING id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, created_at, updated_at
 `
 
 type UpdateCitizenParams struct {
-	ID                pgtype.UUID     `json:"id"`
-	FullName          pgtype.Text     `json:"full_name"`
-	DateOfBirth       pgtype.Date     `json:"date_of_birth"`
-	Gender            pgtype.Text     `json:"gender"`
-	Address           pgtype.Text     `json:"address"`
-	Email             pgtype.Text     `json:"email"`
-	Phone             pgtype.Text     `json:"phone"`
-	CccdNumber        pgtype.Text     `json:"cccd_number"`
-	AvatarUrl         pgtype.Text     `json:"avatar_url"`
-	FaceEmbedding     pgvector.Vector `json:"face_embedding"`
-	EmergencyContacts []byte          `json:"emergency_contacts"`
+	ID          pgtype.UUID `json:"id"`
+	FullName    string      `json:"full_name"`
+	Phone       pgtype.Text `json:"phone"`
+	AvatarUrl   pgtype.Text `json:"avatar_url"`
+	DateOfBirth pgtype.Date `json:"date_of_birth"`
+	Gender      pgtype.Text `json:"gender"`
+	Address     pgtype.Text `json:"address"`
+	CccdNumber  pgtype.Text `json:"cccd_number"`
 }
 
 func (q *Queries) UpdateCitizen(ctx context.Context, arg UpdateCitizenParams) (Citizens, error) {
 	row := q.db.QueryRow(ctx, updateCitizen,
 		arg.ID,
 		arg.FullName,
+		arg.Phone,
+		arg.AvatarUrl,
 		arg.DateOfBirth,
 		arg.Gender,
 		arg.Address,
-		arg.Email,
-		arg.Phone,
 		arg.CccdNumber,
-		arg.AvatarUrl,
-		arg.FaceEmbedding,
-		arg.EmergencyContacts,
 	)
 	var i Citizens
 	err := row.Scan(
 		&i.ID,
+		&i.CognitoID,
+		&i.Email,
 		&i.FullName,
+		&i.Phone,
+		&i.AvatarUrl,
 		&i.DateOfBirth,
 		&i.Gender,
 		&i.Address,
-		&i.Email,
-		&i.Phone,
 		&i.CccdNumber,
-		&i.AvatarUrl,
 		&i.FaceEmbedding,
 		&i.EmergencyContacts,
 		&i.CreatedAt,
@@ -641,16 +756,30 @@ func (q *Queries) UpdateCitizen(ctx context.Context, arg UpdateCitizenParams) (C
 	return i, err
 }
 
+const updateCitizenFaceEmbedding = `-- name: UpdateCitizenFaceEmbedding :exec
+UPDATE citizens SET face_embedding = $2 WHERE id = $1
+`
+
+type UpdateCitizenFaceEmbeddingParams struct {
+	ID            pgtype.UUID     `json:"id"`
+	FaceEmbedding pgvector.Vector `json:"face_embedding"`
+}
+
+func (q *Queries) UpdateCitizenFaceEmbedding(ctx context.Context, arg UpdateCitizenFaceEmbeddingParams) error {
+	_, err := q.db.Exec(ctx, updateCitizenFaceEmbedding, arg.ID, arg.FaceEmbedding)
+	return err
+}
+
 const updateMedicalRecord = `-- name: UpdateMedicalRecord :one
 UPDATE medical_records
 SET
-    distinguishing_marks = COALESCE($2, distinguishing_marks),
-    blood_group = COALESCE($3, blood_group),
-    allergies = COALESCE($4, allergies),
-    background_diseases = COALESCE($5, background_diseases),
-    current_medications = COALESCE($6, current_medications),
-    notes = COALESCE($7, notes),
-    last_updated = NOW()
+    distinguishing_marks = $2,
+    blood_group          = $3,
+    allergies            = $4,
+    background_diseases  = $5,
+    current_medications  = $6,
+    notes                = $7,
+    last_updated         = NOW()
 WHERE citizen_id = $1
 RETURNING citizen_id, distinguishing_marks, blood_group, allergies, background_diseases, current_medications, notes, last_updated
 `
@@ -690,9 +819,7 @@ func (q *Queries) UpdateMedicalRecord(ctx context.Context, arg UpdateMedicalReco
 }
 
 const updateNFCLastUsed = `-- name: UpdateNFCLastUsed :exec
-UPDATE nfc_tags
-SET last_used_at = NOW()
-WHERE id = $1
+UPDATE nfc_tags SET last_used_at = NOW() WHERE id = $1
 `
 
 func (q *Queries) UpdateNFCLastUsed(ctx context.Context, id string) error {
@@ -700,37 +827,8 @@ func (q *Queries) UpdateNFCLastUsed(ctx context.Context, id string) error {
 	return err
 }
 
-const updateNFCTagStatus = `-- name: UpdateNFCTagStatus :one
-UPDATE nfc_tags
-SET status = $2
-WHERE id = $1
-RETURNING id, name, type, status, citizen_id, registered_at, last_used_at
-`
-
-type UpdateNFCTagStatusParams struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-}
-
-func (q *Queries) UpdateNFCTagStatus(ctx context.Context, arg UpdateNFCTagStatusParams) (NfcTags, error) {
-	row := q.db.QueryRow(ctx, updateNFCTagStatus, arg.ID, arg.Status)
-	var i NfcTags
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Type,
-		&i.Status,
-		&i.CitizenID,
-		&i.RegisteredAt,
-		&i.LastUsedAt,
-	)
-	return i, err
-}
-
 const updateQRLastUsed = `-- name: UpdateQRLastUsed :exec
-UPDATE qr_codes
-SET last_used_at = NOW()
-WHERE id = $1
+UPDATE qr_codes SET last_used_at = NOW() WHERE id = $1
 `
 
 func (q *Queries) UpdateQRLastUsed(ctx context.Context, id pgtype.UUID) error {
@@ -738,36 +836,56 @@ func (q *Queries) UpdateQRLastUsed(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
-const updateQRStatus = `-- name: UpdateQRStatus :one
-UPDATE qr_codes
-SET status = $2
+const updateStaff = `-- name: UpdateStaff :one
+UPDATE staff
+SET
+    full_name     = $2,
+    phone         = $3,
+    avatar_url    = $4,
+    hospital_name = $5,
+    department    = $6,
+    updated_at    = NOW()
 WHERE id = $1
-RETURNING id, name, status, citizen_id, created_at, last_used_at
+RETURNING id, cognito_id, email, full_name, phone, avatar_url, hospital_name, department, status, created_at, updated_at
 `
 
-type UpdateQRStatusParams struct {
-	ID     pgtype.UUID `json:"id"`
-	Status string      `json:"status"`
+type UpdateStaffParams struct {
+	ID           pgtype.UUID `json:"id"`
+	FullName     string      `json:"full_name"`
+	Phone        pgtype.Text `json:"phone"`
+	AvatarUrl    pgtype.Text `json:"avatar_url"`
+	HospitalName string      `json:"hospital_name"`
+	Department   pgtype.Text `json:"department"`
 }
 
-func (q *Queries) UpdateQRStatus(ctx context.Context, arg UpdateQRStatusParams) (QrCodes, error) {
-	row := q.db.QueryRow(ctx, updateQRStatus, arg.ID, arg.Status)
-	var i QrCodes
+func (q *Queries) UpdateStaff(ctx context.Context, arg UpdateStaffParams) (Staff, error) {
+	row := q.db.QueryRow(ctx, updateStaff,
+		arg.ID,
+		arg.FullName,
+		arg.Phone,
+		arg.AvatarUrl,
+		arg.HospitalName,
+		arg.Department,
+	)
+	var i Staff
 	err := row.Scan(
 		&i.ID,
-		&i.Name,
+		&i.CognitoID,
+		&i.Email,
+		&i.FullName,
+		&i.Phone,
+		&i.AvatarUrl,
+		&i.HospitalName,
+		&i.Department,
 		&i.Status,
-		&i.CitizenID,
 		&i.CreatedAt,
-		&i.LastUsedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const updateStaffStatus = `-- name: UpdateStaffStatus :exec
-UPDATE healthcare_staff
-SET status = $2, updated_at = NOW()
-WHERE id = $1
+const updateStaffStatus = `-- name: UpdateStaffStatus :one
+UPDATE staff SET status = $2, updated_at = NOW() WHERE id = $1 RETURNING id, cognito_id, email, full_name, phone, avatar_url, hospital_name, department, status, created_at, updated_at
 `
 
 type UpdateStaffStatusParams struct {
@@ -775,25 +893,21 @@ type UpdateStaffStatusParams struct {
 	Status string      `json:"status"`
 }
 
-func (q *Queries) UpdateStaffStatus(ctx context.Context, arg UpdateStaffStatusParams) error {
-	_, err := q.db.Exec(ctx, updateStaffStatus, arg.ID, arg.Status)
-	return err
-}
-
-const upsertOTP = `-- name: UpsertOTP :exec
-INSERT INTO otps (phone, code, expires_at)
-VALUES ($1, $2, $3)
-ON CONFLICT (phone) DO UPDATE
-SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at
-`
-
-type UpsertOTPParams struct {
-	Phone     string             `json:"phone"`
-	Code      string             `json:"code"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
-}
-
-func (q *Queries) UpsertOTP(ctx context.Context, arg UpsertOTPParams) error {
-	_, err := q.db.Exec(ctx, upsertOTP, arg.Phone, arg.Code, arg.ExpiresAt)
-	return err
+func (q *Queries) UpdateStaffStatus(ctx context.Context, arg UpdateStaffStatusParams) (Staff, error) {
+	row := q.db.QueryRow(ctx, updateStaffStatus, arg.ID, arg.Status)
+	var i Staff
+	err := row.Scan(
+		&i.ID,
+		&i.CognitoID,
+		&i.Email,
+		&i.FullName,
+		&i.Phone,
+		&i.AvatarUrl,
+		&i.HospitalName,
+		&i.Department,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

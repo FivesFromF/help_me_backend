@@ -85,7 +85,7 @@ resource "aws_lambda_permission" "audit_emergency" {
   source_arn    = var.audit_emergency_rule_arn
 }
 
-# Notification Worker: EventBridge -> SNS
+# Notification Worker: EventBridge -> Email (SMTP)
 resource "aws_iam_role" "notification_worker_role" {
   name = "${var.project_name}-notification-worker-role"
 
@@ -97,28 +97,15 @@ resource "aws_iam_role" "notification_worker_role" {
       Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
+
+  tags = {
+    Project = "HelpMe"
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "notification_basic" {
   role       = aws_iam_role.notification_worker_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-}
-
-resource "aws_iam_policy" "notification_sns" {
-  name = "${var.project_name}-notification-sns-policy"
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action   = "sns:Publish"
-      Effect   = "Allow"
-      Resource = var.sns_topic_arn
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "notification_sns_attach" {
-  role       = aws_iam_role.notification_worker_role.name
-  policy_arn = aws_iam_policy.notification_sns.arn
 }
 
 resource "aws_lambda_function" "notification_worker" {
@@ -130,13 +117,22 @@ resource "aws_lambda_function" "notification_worker" {
 
   environment {
     variables = {
-      SNS_TOPIC_ARN = var.sns_topic_arn
-      DATABASE_URL  = var.database_url
+      SMTP_HOST    = var.smtp_host
+      SMTP_PORT    = var.smtp_port
+      SMTP_USER    = var.smtp_user
+      SMTP_PASS    = var.smtp_pass
+      SMTP_FROM    = var.smtp_from
+      DATABASE_URL = var.database_url
     }
   }
 
   lifecycle {
     ignore_changes = [filename]
+  }
+
+  tags = {
+    Project   = "HelpMe"
+    Component = "Lambda-Notification"
   }
 }
 
@@ -210,10 +206,12 @@ resource "aws_lambda_permission" "grant_eventbridge" {
   source_arn    = var.identification_rule_arn
 }
 
-# --- Cognito Passwordless Triggers ---
+# =============================================
+# Post Confirmation Lambda: Auto-add new user to 'citizen' group
+# =============================================
 
-resource "aws_iam_role" "cognito_trigger_role" {
-  name = "${var.project_name}-cognito-trigger-role"
+resource "aws_iam_role" "post_confirmation_role" {
+  name = "${var.project_name}-post-confirmation-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -223,86 +221,90 @@ resource "aws_iam_role" "cognito_trigger_role" {
       Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
+
+  tags = {
+    Project   = "HelpMe"
+    Component = "Lambda-PostConfirmation"
+  }
 }
 
-resource "aws_iam_role_policy_attachment" "cognito_basic" {
-  role       = aws_iam_role.cognito_trigger_role.name
+resource "aws_iam_role_policy_attachment" "post_confirmation_basic" {
+  role       = aws_iam_role.post_confirmation_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-resource "aws_iam_policy" "cognito_sns_publish" {
-  name = "${var.project_name}-cognito-sns-publish-policy"
+resource "aws_iam_policy" "post_confirmation_cognito" {
+  name = "${var.project_name}-post-confirmation-cognito-policy"
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action   = "sns:Publish"
-      Effect   = "Allow"
-      Resource = "*" # Or restrict to specific phone numbers/patterns if possible
+      Effect = "Allow"
+      Action = [
+        "cognito-idp:AdminAddUserToGroup",
+        "cognito-idp:AdminListGroupsForUser"
+      ]
+      Resource = var.user_pool_arn
     }]
   })
 }
 
-resource "aws_iam_role_policy_attachment" "cognito_sns_attach" {
-  role       = aws_iam_role.cognito_trigger_role.name
-  policy_arn = aws_iam_policy.cognito_sns_publish.arn
+resource "aws_iam_role_policy_attachment" "post_confirmation_cognito_attach" {
+  role       = aws_iam_role.post_confirmation_role.name
+  policy_arn = aws_iam_policy.post_confirmation_cognito.arn
 }
 
-# Define Auth Challenge
-resource "aws_lambda_function" "cognito_define_auth" {
-  filename      = "${path.module}/cognito_define_auth.zip"
-  function_name = "${var.project_name}-cognito-define-auth"
-  role          = aws_iam_role.cognito_trigger_role.arn
+resource "aws_lambda_function" "post_confirmation" {
+  filename      = "${path.module}/post_confirmation.zip"
+  function_name = "${var.project_name}-post-confirmation"
+  role          = aws_iam_role.post_confirmation_role.arn
   handler       = "bootstrap"
   runtime       = "provided.al2023"
-  lifecycle { ignore_changes = [filename] }
+
+  lifecycle {
+    ignore_changes = [filename]
+  }
+
+  tags = {
+    Project   = "HelpMe"
+    Component = "Lambda-PostConfirmation"
+  }
 }
 
-resource "aws_lambda_permission" "allow_cognito_define" {
-  statement_id  = "AllowCognitoInvokeDefine"
+resource "aws_lambda_permission" "cognito_post_confirmation" {
+  statement_id  = "AllowCognitoInvokePostConfirmation"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.cognito_define_auth.function_name
+  function_name = aws_lambda_function.post_confirmation.function_name
   principal     = "cognito-idp.amazonaws.com"
-}
-
-# Create Auth Challenge
-resource "aws_lambda_function" "cognito_create_auth" {
-  filename      = "${path.module}/cognito_create_auth.zip"
-  function_name = "${var.project_name}-cognito-create-auth"
-  role          = aws_iam_role.cognito_trigger_role.arn
-  handler       = "bootstrap"
-  runtime       = "provided.al2023"
-  lifecycle { ignore_changes = [filename] }
-}
-
-resource "aws_lambda_permission" "allow_cognito_create" {
-  statement_id  = "AllowCognitoInvokeCreate"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.cognito_create_auth.function_name
-  principal     = "cognito-idp.amazonaws.com"
-}
-
-# Verify Auth Challenge Response
-resource "aws_lambda_function" "cognito_verify_auth" {
-  filename      = "${path.module}/cognito_verify_auth.zip"
-  function_name = "${var.project_name}-cognito-verify-auth"
-  role          = aws_iam_role.cognito_trigger_role.arn
-  handler       = "bootstrap"
-  runtime       = "provided.al2023"
-  lifecycle { ignore_changes = [filename] }
-}
-
-resource "aws_lambda_permission" "allow_cognito_verify" {
-  statement_id  = "AllowCognitoInvokeVerify"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.cognito_verify_auth.function_name
-  principal     = "cognito-idp.amazonaws.com"
+  source_arn    = var.user_pool_arn
 }
 
 # --- Variables & Outputs ---
 
 variable "project_name" {}
-variable "sns_topic_arn" {}
+
+variable "smtp_host" {
+  type = string
+}
+
+variable "smtp_port" {
+  type = string
+}
+
+variable "smtp_user" {
+  type = string
+}
+
+variable "smtp_pass" {
+  type      = string
+  sensitive = true
+}
+
+variable "smtp_from" {
+  type = string
+}
+
 variable "database_url" {}
+variable "user_pool_arn" {}
 variable "sessions_table_arn" {}
 variable "sessions_table_name" {}
 variable "audit_table_arn" {}
@@ -320,19 +322,10 @@ output "audit_lambda_arn" {
 output "notification_lambda_arn" {
   value = aws_lambda_function.notification_worker.arn
 }
-
 output "grant_permission_lambda_arn" {
   value = aws_lambda_function.grant_permission_worker.arn
 }
 
-output "cognito_define_auth_arn" {
-  value = aws_lambda_function.cognito_define_auth.arn
-}
-
-output "cognito_create_auth_arn" {
-  value = aws_lambda_function.cognito_create_auth.arn
-}
-
-output "cognito_verify_auth_arn" {
-  value = aws_lambda_function.cognito_verify_auth.arn
+output "post_confirmation_lambda_arn" {
+  value = aws_lambda_function.post_confirmation.arn
 }

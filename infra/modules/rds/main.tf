@@ -1,5 +1,5 @@
 resource "aws_db_subnet_group" "main" {
-  name       = "${var.project_name}-db-subnet-group"
+  name       = "${var.project_name}-db-private-subnet-group"
   subnet_ids = var.subnet_ids
 
   tags = {

@@ -1,41 +1,52 @@
 variable "aws_region" {
-  description = "AWS region to deploy resources"
+  description = "AWS region"
   type        = string
-  default     = "ap-southeast-1"
+  default     = "us-east-1"
 }
 
 variable "project_name" {
-  description = "Project name for resource tagging and naming"
+  description = "Project name for resource naming"
   type        = string
-  default     = "helpme"
+  default     = "help-me"
 }
 
-variable "db_password" {
-  description = "Password for the Aurora PostgreSQL cluster"
+# --- Google OAuth Credentials ---
+variable "google_client_id" {
+  description = "Google OAuth Client ID"
+  type        = string
+  default     = "PLACEHOLDER"
+}
+
+variable "google_client_secret" {
+  description = "Google OAuth Client Secret"
+  type        = string
+  default     = "PLACEHOLDER"
+  sensitive   = true
+}
+
+# --- SMTP Configuration ---
+variable "smtp_host" {
+  description = "SMTP Host (e.g., smtp.gmail.com)"
+  type        = string
+}
+
+variable "smtp_port" {
+  description = "SMTP Port"
+  type        = string
+}
+
+variable "smtp_user" {
+  description = "SMTP Username"
+  type        = string
+}
+
+variable "smtp_pass" {
+  description = "SMTP Password"
   type        = string
   sensitive   = true
 }
 
-variable "vpc_cidr" {
-  description = "CIDR block for the VPC"
+variable "smtp_from" {
+  description = "Email address for sending notifications"
   type        = string
-  default     = "10.0.0.0/16"
-}
-
-variable "read_container_image" {
-  description = "Docker image for the Read Service"
-  type        = string
-  default     = "nginx:latest" # Placeholder
-}
-
-variable "write_container_image" {
-  description = "Docker image for the Write Service"
-  type        = string
-  default     = "nginx:latest" # Placeholder
-}
-
-variable "system_secret" {
-  description = "Secret key for HMAC hashing (NFC/QR)"
-  type        = string
-  sensitive   = true
 }

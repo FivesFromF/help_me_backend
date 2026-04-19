@@ -5,11 +5,9 @@ resource "aws_cognito_user_pool" "pool" {
   auto_verified_attributes = ["email"]
   alias_attributes = ["email", "phone_number"]
 
-  # Lambda Triggers for Passwordless OTP
+  # Lambda Triggers
   lambda_config {
-    define_auth_challenge          = var.cognito_define_auth_arn
-    create_auth_challenge          = var.cognito_create_auth_arn
-    verify_auth_challenge_response = var.cognito_verify_auth_arn
+    post_confirmation = var.post_confirmation_lambda_arn
   }
 
   # Password policy for MVP
@@ -67,12 +65,44 @@ resource "aws_cognito_user_pool_client" "client" {
   explicit_auth_flows = [
     "ALLOW_USER_PASSWORD_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH",
-    "ALLOW_USER_SRP_AUTH",
-    "ALLOW_CUSTOM_AUTH"
+    "ALLOW_USER_SRP_AUTH"
   ]
+
+  supported_identity_providers = ["COGNITO", "Google"]
+
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_flows                  = ["code", "implicit"]
+  allowed_oauth_scopes                 = ["phone", "email", "openid", "profile", "aws.cognito.signin.user.admin"]
+  callback_urls                       = ["http://localhost:3000/", "helpme://auth-callback"]
+  logout_urls                         = ["http://localhost:3000/", "helpme://auth-logout"]
 
   # For MVP simplified auth
   generate_secret = false
+}
+
+resource "aws_cognito_identity_provider" "google" {
+  user_pool_id  = aws_cognito_user_pool.pool.id
+  provider_name = "Google"
+  provider_type = "Google"
+
+  provider_details = {
+    authorize_scopes = "email openid profile"
+    client_id        = var.google_client_id
+    client_secret    = var.google_client_secret
+    attributes_url                = "https://people.googleapis.com/v1/people/me?personFields="
+    attributes_url_add_attributes = "true"
+    authorize_url                 = "https://accounts.google.com/o/oauth2/v2/auth"
+    token_request_method          = "POST"
+    token_url                     = "https://www.googleapis.com/oauth2/v4/token"
+    oidc_issuer                   = "https://accounts.google.com"
+  }
+
+  attribute_mapping = {
+    email    = "email"
+    username = "sub"
+    name     = "name"
+    picture  = "picture"
+  }
 }
 
 resource "aws_cognito_user_pool_domain" "main" {
@@ -85,10 +115,22 @@ variable "random_suffix" {
   default = "dev"
 }
 
-# Lambda trigger ARNs
-variable "cognito_define_auth_arn" {}
-variable "cognito_create_auth_arn" {}
-variable "cognito_verify_auth_arn" {}
+# Google OAuth
+variable "google_client_id" {
+  type    = string
+  default = "PLACEHOLDER"
+}
+variable "google_client_secret" {
+  type    = string
+  default = "PLACEHOLDER"
+  sensitive = true
+}
+
+# Post Confirmation Lambda ARN (from lambda module)
+variable "post_confirmation_lambda_arn" {
+  type    = string
+  default = ""
+}
 
 output "user_pool_id" {
   value = aws_cognito_user_pool.pool.id

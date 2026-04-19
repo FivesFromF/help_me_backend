@@ -15,7 +15,7 @@ jobs:
     - name: Setup Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.22'
+        go-version: '1.24'
 
     - name: Build and Package Lambdas
       run: |
@@ -33,6 +33,9 @@ jobs:
         build_lambda "audit-worker" "infra/modules/lambda/audit_worker.zip"
         build_lambda "notification-worker" "infra/modules/lambda/notification_worker.zip"
         build_lambda "grant-permission-worker" "infra/modules/lambda/grant_permission_worker.zip"
+        build_lambda "cognito-create-auth" "infra/modules/lambda/cognito_create_auth.zip"
+        build_lambda "cognito-define-auth" "infra/modules/lambda/cognito_define_auth.zip"
+        build_lambda "cognito-verify-auth" "infra/modules/lambda/cognito_verify_auth.zip"
         build_lambda "authorizer" "infra/modules/authorizer/authorizer.zip"
 
     - name: Configure AWS Credentials

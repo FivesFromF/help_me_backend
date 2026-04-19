@@ -2,189 +2,137 @@ package api
 
 import "time"
 
-// ========= AUTHENTICATION =========
-
-type RequestOTPRequest struct {
-	Phone string `json:"phone"`
-}
-
-type RequestOTPResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-}
-
-type VerifyOTPRequest struct {
-	Phone string `json:"phone"`
-	Code  string `json:"code"`
-}
-
-type VerifyOTPResponse struct {
-	Token        string          `json:"token"`
-	Profile      *CitizenProfile `json:"profile,omitempty"`
-	StaffProfile *StaffProfile   `json:"staffProfile,omitempty"` // For Staff login fallback
-}
-
-type StaffSignInRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
-type StaffSignInResponse struct {
-	Token   string        `json:"token,omitempty"`
-	Profile *StaffProfile `json:"profile,omitempty"`
-}
-
-// ========= PROFILES =========
+// ========= CITIZEN PROFILE =========
 
 type CitizenProfile struct {
-	ID          string    `json:"id"`
-	FullName    string    `json:"fullName"`
-	DateOfBirth string    `json:"dateOfBirth"`
-	Gender      string    `json:"gender"`
-	Address     string    `json:"address"`
-	Email       string    `json:"email"`
-	Phone       string    `json:"phone"`
-	CccdNumber  string    `json:"cccdNumber"`
-	AvatarUrl   string    `json:"avatarUrl"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID                string    `json:"id"`
+	CognitoID         string    `json:"cognitoId,omitempty"`
+	Email             string    `json:"email"`
+	FullName          string    `json:"fullName"`
+	Phone             string    `json:"phone,omitempty"`
+	AvatarUrl         string    `json:"avatarUrl,omitempty"`
+	DateOfBirth       string    `json:"dateOfBirth,omitempty"`
+	Gender            string    `json:"gender,omitempty"`
+	Address           string    `json:"address,omitempty"`
+	CccdNumber        string    `json:"cccdNumber,omitempty"`
+	CreatedAt         time.Time `json:"createdAt"`
 }
+
+// ========= STAFF PROFILE =========
 
 type StaffProfile struct {
 	ID           string    `json:"id"`
-	FullName     string    `json:"fullName"`
+	CognitoID    string    `json:"cognitoId,omitempty"`
 	Email        string    `json:"email"`
+	FullName     string    `json:"fullName"`
+	Phone        string    `json:"phone,omitempty"`
+	AvatarUrl    string    `json:"avatarUrl,omitempty"`
 	HospitalName string    `json:"hospitalName"`
-	Role         string    `json:"role"`
+	Department   string    `json:"department,omitempty"`
 	Status       string    `json:"status"`
 	CreatedAt    time.Time `json:"createdAt"`
 }
 
-type ContactInfo struct {
-	Name         string `json:"name"`
-	Relationship string `json:"relationship"`
-	Phone        string `json:"phone"`
+// ========= ADMIN PROFILE =========
+
+type AdminProfile struct {
+	ID        string    `json:"id"`
+	CognitoID string    `json:"cognitoId,omitempty"`
+	Email     string    `json:"email"`
+	FullName  string    `json:"fullName"`
+	AvatarUrl string    `json:"avatarUrl,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
-type MedicalRecord struct {
-	ID                  string    `json:"id"`
-	DistinguishingMarks string    `json:"distinguishingMarks"`
-	BloodGroup          string    `json:"bloodGroup"`
-	Allergies           []string  `json:"allergies"`
-	BackgroundDiseases  []string  `json:"backgroundDiseases"`
-	CurrentMedications  []string  `json:"currentMedications"`
-	Notes               string    `json:"notes"`
-	UpdatedAt           time.Time `json:"updatedAt"`
+// ========= AUTH =========
+
+type SignInRequest struct {
+	AccessToken string `json:"accessToken"`
 }
 
-// ========= CITIZEN REGISTRATION =========
-
-type RegisterRequest struct {
-	FullName             string         `json:"fullName"`
-	DateOfBirth          string         `json:"dateOfBirth"` // "2006-01-02"
-	Gender               string         `json:"gender"`
-	Address              string         `json:"address"`
-	Email                string         `json:"email"`
-	Phone                string         `json:"phone"`
-	CccdNumber           string         `json:"cccdNumber"`
-	AvatarUrl            string         `json:"avatarUrl"`
-	FaceVector           []float32      `json:"faceVector"`
-	EmergencyContacts    []ContactInfo  `json:"emergencyContacts"`
-	InitialMedicalRecord *MedicalRecord `json:"initialMedicalRecord,omitempty"`
+// SignInResponse returns the profile based on Cognito Group
+type SignInResponse struct {
+	Role    string          `json:"role"` // "citizen" | "staff" | "admin"
+	Citizen *CitizenProfile `json:"citizen,omitempty"`
+	Staff   *StaffProfile   `json:"staff,omitempty"`
+	Admin   *AdminProfile   `json:"admin,omitempty"`
 }
 
-type RegisterResponse struct {
+// ========= CITIZEN - REGISTER (Complete Profile) =========
+
+type RegisterCitizenRequest struct {
+	FullName    string   `json:"fullName"`
+	Phone       string   `json:"phone,omitempty"`
+	DateOfBirth string   `json:"dateOfBirth,omitempty"`
+	Gender      string   `json:"gender,omitempty"`
+	Address     string   `json:"address,omitempty"`
+	CccdNumber  string   `json:"cccdNumber,omitempty"`
+	AvatarUrl   string   `json:"avatarUrl,omitempty"`
+	FaceVector  []float32 `json:"faceVector,omitempty"`
+
+	InitialMedicalRecord *MedicalRecordInput `json:"medicalRecord,omitempty"`
+}
+
+type RegisterCitizenResponse struct {
 	Profile *CitizenProfile `json:"profile"`
 }
 
-// ========= IDENTIFICATION =========
+// ========= MEDICAL RECORD =========
+
+type MedicalRecordInput struct {
+	DistinguishingMarks string   `json:"distinguishingMarks,omitempty"`
+	BloodGroup          string   `json:"bloodGroup,omitempty"`
+	Allergies           []string `json:"allergies,omitempty"`
+	BackgroundDiseases  []string `json:"backgroundDiseases,omitempty"`
+	CurrentMedications  []string `json:"currentMedications,omitempty"`
+	Notes               string   `json:"notes,omitempty"`
+}
+
+type MedicalRecord struct {
+	ID                  string    `json:"id"` // citizen_id
+	DistinguishingMarks string    `json:"distinguishingMarks,omitempty"`
+	BloodGroup          string    `json:"bloodGroup,omitempty"`
+	Allergies           []string  `json:"allergies,omitempty"`
+	BackgroundDiseases  []string  `json:"backgroundDiseases,omitempty"`
+	CurrentMedications  []string  `json:"currentMedications,omitempty"`
+	Notes               string    `json:"notes,omitempty"`
+	UpdatedAt           time.Time `json:"updatedAt"`
+}
+
+// ========= IDENTITY VERIFICATION =========
 
 type VerifyIdentityRequest struct {
-	NfcID           string `json:"nfcId,omitempty"`
-	QrID            string `json:"qrId,omitempty"`
-	HashedCitizenID string `json:"hashedCitizenId"`
+	NfcID          string `json:"nfcId,omitempty"`
+	QrID           string `json:"qrId,omitempty"`
+	HashedCitizenID string `json:"hashedCitizenId,omitempty"`
 }
 
 type VerifyIdentityResponse struct {
 	Profile           *CitizenProfile `json:"profile"`
-	MedicalRecord     *MedicalRecord  `json:"medicalRecord"`
-	EmergencyContacts []ContactInfo   `json:"emergencyContacts"`
+	MedicalRecord     *MedicalRecord  `json:"medicalRecord,omitempty"`
+	EmergencyContacts []ContactInfo   `json:"emergencyContacts,omitempty"`
 }
 
+// ========= FACE SEARCH =========
+
 type SearchByFaceRequest struct {
-	FaceVector []float32 `json:"faceVector"`
+	FaceVector  []float32 `json:"faceVector"`
+	StaffID     string    `json:"staffId,omitempty"`
 }
 
 type SearchByFaceResponse struct {
 	Profile           *CitizenProfile `json:"profile"`
-	MedicalRecord     *MedicalRecord  `json:"medicalRecord"`
-	EmergencyContacts []ContactInfo   `json:"emergencyContacts"`
+	MedicalRecord     *MedicalRecord  `json:"medicalRecord,omitempty"`
+	EmergencyContacts []ContactInfo   `json:"emergencyContacts,omitempty"`
 }
 
-// ========= GENERAL GENERIC RESPONSES =========
-
-type ErrorResponse struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-// ========= ADMIN / STAFF =========
-
-type ListAuditLogsRequest struct {
-	Limit int32 `json:"limit"`
-}
-
-type AuditLog struct {
-	ID         string    `json:"id"`
-	EventType  string    `json:"eventType"`
-	ActorID    string    `json:"actorId"`
-	ResourceID string    `json:"resourceId"`
-	Details    string    `json:"details"`
-	Timestamp  time.Time `json:"timestamp"`
-}
-
-type ListAuditLogsResponse struct {
-	Logs      []AuditLog `json:"logs"`
-	NextToken string     `json:"nextToken"`
-}
-
-type GetSystemStatsRequest struct{}
-
-type GetSystemStatsResponse struct {
-	TotalCitizens        int64 `json:"totalCitizens"`
-	TotalStaff           int64 `json:"totalStaff"`
-	EmergencyEventsToday int64 `json:"emergencyEventsToday"`
-}
-
-type ManageStaffRequest struct {
-	StaffID   string `json:"staffId"`
-	NewStatus string `json:"newStatus"`
-}
-
-type ManageStaffResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-}
-
-type RegisterStaffRequest struct {
-	FullName     string `json:"fullName"`
-	Email        string `json:"email"`
-	Phone        string `json:"phone"`
-	Password     string `json:"password"`
-	HospitalName string `json:"hospitalName"`
-	Role         string `json:"role"`
-}
-
-type RegisterStaffResponse struct {
-	Profile *StaffProfile `json:"profile"`
-}
-
-// ========= EMERGENCY =========
+// ========= EMERGENCY REPORT =========
 
 type ReportEmergencyRequest struct {
-	VictimID             string  `json:"victimId,omitempty"`
 	LocationLat          float64 `json:"locationLat"`
 	LocationLon          float64 `json:"locationLon"`
-	SituationDescription string  `json:"situationDescription"`
+	SituationDescription string  `json:"situationDescription,omitempty"`
+	VictimID             string  `json:"victimId,omitempty"`
 }
 
 type EmergencyReport struct {
@@ -196,7 +144,7 @@ type ReportEmergencyResponse struct {
 	Report *EmergencyReport `json:"report"`
 }
 
-// ========= HEALTHCARE =========
+// ========= HEALTHCARE / MEDICAL DATA =========
 
 type GetMedicalRecordRequest struct {
 	CitizenID string `json:"citizenId"`
@@ -204,16 +152,69 @@ type GetMedicalRecordRequest struct {
 }
 
 type GetMedicalRecordResponse struct {
-	Record *ApiMedicalRecord `json:"record"`
+	Record *MedicalRecord `json:"record"`
 }
 
-type ApiMedicalRecord struct {
-	CitizenID           string    `json:"citizenId"`
-	DistinguishingMarks string    `json:"distinguishingMarks"`
-	BloodGroup          string    `json:"bloodGroup"`
-	Allergies           []string  `json:"allergies"`
-	BackgroundDiseases  []string  `json:"backgroundDiseases"`
-	CurrentMedications  []string  `json:"currentMedications"`
-	Notes               string    `json:"notes"`
-	LastUpdated         time.Time `json:"lastUpdated"`
+// ========= CONTACT INFO =========
+
+type ContactInfo struct {
+	Name         string `json:"name"`
+	Relationship string `json:"relationship,omitempty"`
+	Phone        string `json:"phone,omitempty"`
+	Email        string `json:"email,omitempty"`
+}
+
+// ========= ADMIN: REGISTER STAFF =========
+
+type RegisterStaffRequest struct {
+	FullName     string `json:"fullName"`
+	Email        string `json:"email"`
+	Phone        string `json:"phone,omitempty"`
+	HospitalName string `json:"hospitalName"`
+	Department   string `json:"department,omitempty"`
+}
+
+type RegisterStaffResponse struct {
+	Profile *StaffProfile `json:"profile"`
+}
+
+// ========= ADMIN: MANAGE STAFF =========
+
+type ManageStaffRequest struct {
+	StaffID  string `json:"staffId"`
+	NewStatus string `json:"newStatus,omitempty"` // active, inactive, suspended
+}
+
+type ManageStaffResponse struct {
+	Profile *StaffProfile `json:"profile"`
+}
+
+// ========= ADMIN: SYSTEM STATS =========
+
+type GetSystemStatsResponse struct {
+	TotalCitizens        int64 `json:"totalCitizens"`
+	TotalStaff           int64 `json:"totalStaff"`
+	TotalAdmins          int64 `json:"totalAdmins"`
+	EmergencyEventsToday int64 `json:"emergencyEventsToday"`
+}
+
+// ========= AUDIT LOGS =========
+
+type AuditLog struct {
+	ID         string    `json:"id"`
+	EventType  string    `json:"eventType"`
+	ActorID    string    `json:"actorId"`
+	ResourceID string    `json:"resourceId"`
+	Details    string    `json:"details"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+
+type ListAuditLogsRequest struct {
+	Limit     int32  `json:"limit,omitempty"`
+	NextToken string `json:"nextToken,omitempty"`
+}
+
+type ListAuditLogsResponse struct {
+	Logs      []AuditLog `json:"logs"`
+	NextToken string     `json:"nextToken,omitempty"`
 }

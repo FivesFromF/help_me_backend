@@ -9,16 +9,27 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
+type Admins struct {
+	ID        pgtype.UUID        `json:"id"`
+	CognitoID string             `json:"cognito_id"`
+	Email     string             `json:"email"`
+	FullName  string             `json:"full_name"`
+	AvatarUrl pgtype.Text        `json:"avatar_url"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Citizens struct {
 	ID                pgtype.UUID        `json:"id"`
+	CognitoID         string             `json:"cognito_id"`
+	Email             string             `json:"email"`
 	FullName          string             `json:"full_name"`
+	Phone             pgtype.Text        `json:"phone"`
+	AvatarUrl         pgtype.Text        `json:"avatar_url"`
 	DateOfBirth       pgtype.Date        `json:"date_of_birth"`
 	Gender            pgtype.Text        `json:"gender"`
 	Address           pgtype.Text        `json:"address"`
-	Email             pgtype.Text        `json:"email"`
-	Phone             pgtype.Text        `json:"phone"`
 	CccdNumber        pgtype.Text        `json:"cccd_number"`
-	AvatarUrl         pgtype.Text        `json:"avatar_url"`
 	FaceEmbedding     pgvector.Vector    `json:"face_embedding"`
 	EmergencyContacts []byte             `json:"emergency_contacts"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
@@ -37,19 +48,6 @@ type EmergencyReports struct {
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 }
 
-type HealthcareStaff struct {
-	ID           pgtype.UUID        `json:"id"`
-	FullName     string             `json:"full_name"`
-	Email        string             `json:"email"`
-	PasswordHash string             `json:"password_hash"`
-	HospitalName pgtype.Text        `json:"hospital_name"`
-	Role         string             `json:"role"`
-	Status       string             `json:"status"`
-	Phone        pgtype.Text        `json:"phone"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-}
-
 type MedicalRecords struct {
 	CitizenID           pgtype.UUID        `json:"citizen_id"`
 	DistinguishingMarks pgtype.Text        `json:"distinguishing_marks"`
@@ -64,17 +62,10 @@ type MedicalRecords struct {
 type NfcTags struct {
 	ID           string             `json:"id"`
 	Name         pgtype.Text        `json:"name"`
-	Type         pgtype.Text        `json:"type"`
 	Status       string             `json:"status"`
 	CitizenID    pgtype.UUID        `json:"citizen_id"`
 	RegisteredAt pgtype.Timestamptz `json:"registered_at"`
 	LastUsedAt   pgtype.Timestamptz `json:"last_used_at"`
-}
-
-type Otps struct {
-	Phone     string             `json:"phone"`
-	Code      string             `json:"code"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 }
 
 type QrCodes struct {
@@ -84,4 +75,18 @@ type QrCodes struct {
 	CitizenID  pgtype.UUID        `json:"citizen_id"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
+}
+
+type Staff struct {
+	ID           pgtype.UUID        `json:"id"`
+	CognitoID    string             `json:"cognito_id"`
+	Email        string             `json:"email"`
+	FullName     string             `json:"full_name"`
+	Phone        pgtype.Text        `json:"phone"`
+	AvatarUrl    pgtype.Text        `json:"avatar_url"`
+	HospitalName string             `json:"hospital_name"`
+	Department   pgtype.Text        `json:"department"`
+	Status       string             `json:"status"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
