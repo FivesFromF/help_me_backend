@@ -32,6 +32,8 @@ type Citizens struct {
 	CccdNumber        pgtype.Text        `json:"cccd_number"`
 	FaceEmbedding     *pgv.Vector        `json:"face_embedding"`
 	EmergencyContacts []byte             `json:"emergency_contacts"`
+	IsProfileUpdated  bool               `json:"is_profile_updated"`
+	IsVerified        bool               `json:"is_verified"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }

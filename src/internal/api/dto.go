@@ -72,12 +72,32 @@ type RegisterCitizenRequest struct {
 	CccdNumber  string   `json:"cccdNumber,omitempty"`
 	AvatarUrl   string   `json:"avatarUrl,omitempty"`
 	FaceVector  []float32 `json:"faceVector,omitempty"`
+	FaceImageB64 string   `json:"faceImageB64,omitempty"`
 
 	InitialMedicalRecord *MedicalRecordInput `json:"medicalRecord,omitempty"`
 }
 
 type RegisterCitizenResponse struct {
 	Profile *CitizenProfile `json:"profile"`
+}
+
+// ========= CITIZEN - UPDATE PROFILE (Unified) =========
+
+type UpdateProfileRequest struct {
+	FullName          string              `json:"fullName,omitempty"`
+	Phone             string              `json:"phone,omitempty"`
+	DateOfBirth       string              `json:"dateOfBirth,omitempty"`
+	Gender            string              `json:"gender,omitempty"`
+	Address           string              `json:"address,omitempty"`
+	CccdNumber        string              `json:"cccdNumber,omitempty"`
+	AvatarUrl         string              `json:"avatarUrl,omitempty"`
+	MedicalRecord     *MedicalRecordInput `json:"medicalRecord,omitempty"`
+	EmergencyContacts []ContactInfo       `json:"emergencyContacts,omitempty"`
+}
+
+type UpdateProfileResponse struct {
+	Profile       *CitizenProfile `json:"profile"`
+	MedicalRecord *MedicalRecord  `json:"medicalRecord,omitempty"`
 }
 
 // ========= MEDICAL RECORD =========
@@ -119,8 +139,9 @@ type VerifyIdentityResponse struct {
 // ========= FACE SEARCH =========
 
 type SearchByFaceRequest struct {
-	FaceVector  []float32 `json:"faceVector"`
-	StaffID     string    `json:"staffId,omitempty"`
+	FaceVector   []float32 `json:"faceVector,omitempty"`
+	FaceImageB64 string    `json:"faceImageB64,omitempty"`
+	StaffID      string    `json:"staffId,omitempty"`
 }
 
 type SearchByFaceResponse struct {

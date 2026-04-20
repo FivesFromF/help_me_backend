@@ -22,6 +22,14 @@ module "rds" {
   subnet_ids      = module.vpc.private_subnets
   db_password     = var.db_password
   app_tasks_sg_id = module.ecs.app_tasks_sg_id
+  bastion_sg_id   = module.bastion.bastion_sg_id
+}
+
+module "bastion" {
+  source       = "./modules/bastion"
+  project_name = var.project_name
+  vpc_id       = module.vpc.vpc_id
+  subnet_id    = module.vpc.public_subnets[0] # Use the first public subnet
 }
 
 module "eventbridge" {
@@ -118,4 +126,27 @@ module "apigateway" {
   write_service_endpoint = module.ecs.write_service_endpoint
   read_service_endpoint  = module.ecs.read_service_endpoint
   authorizer_uri         = module.authorizer.authorizer_uri
+}
+
+module "ai_service" {
+  source                         = "./modules/ai_service"
+  project_name                   = var.project_name
+  vpc_id                         = module.vpc.vpc_id
+  public_subnet_ids              = module.vpc.public_subnets
+  app_tasks_sg_id                = module.ecs.app_tasks_sg_id
+  execution_role_arn             = module.ecs.execution_role_arn
+  cluster_id                     = module.ecs.cluster_id
+  service_discovery_namespace_id = module.vpc.service_discovery_namespace_id
+}
+
+output "bastion_instance_id" {
+  value = module.bastion.instance_id
+}
+
+output "rds_endpoint" {
+  value = module.rds.cluster_endpoint
+}
+
+output "ai_repository_url" {
+  value = module.ai_service.repository_url
 }

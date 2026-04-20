@@ -20,6 +20,13 @@ resource "aws_security_group" "rds" {
     security_groups = [var.app_tasks_sg_id]
   }
 
+  ingress {
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [var.bastion_sg_id]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -63,6 +70,7 @@ variable "vpc_id" {}
 variable "subnet_ids" {}
 variable "db_password" {}
 variable "app_tasks_sg_id" {}
+variable "bastion_sg_id" {}
 
 output "cluster_endpoint" {
   value = aws_db_instance.main.address

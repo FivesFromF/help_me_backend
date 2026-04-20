@@ -9,6 +9,7 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	"github.com/fivesfromf/helpme/internal/ai"
 	"github.com/fivesfromf/helpme/internal/repository"
 	"github.com/fivesfromf/helpme/internal/services"
 )
@@ -51,8 +52,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize AI Client
+	aiServerURL := os.Getenv("AI_SERVER_URL")
+	if aiServerURL == "" {
+		aiServerURL = "http://ai.helpme.local:8000" // Default internal DNS
+	}
+	aiClient := ai.NewClient(aiServerURL)
+
 	// Initialize Servers
-	citizenServer := services.NewCitizenServer(store, cloudRepo, systemSecret)
+	citizenServer := services.NewCitizenServer(store, cloudRepo, aiClient, systemSecret)
 	healthcareServer := services.NewHealthcareServer(store, cloudRepo)
 
 	mux := http.NewServeMux()

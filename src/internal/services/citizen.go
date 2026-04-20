@@ -1,14 +1,18 @@
 package services
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pgvector/pgvector-go"
 
+	"github.com/fivesfromf/helpme/internal/ai"
 	"github.com/fivesfromf/helpme/internal/api"
 	"github.com/fivesfromf/helpme/internal/repository"
 	"github.com/fivesfromf/helpme/internal/repository/sqlc"
@@ -18,13 +22,15 @@ import (
 type CitizenServer struct {
 	store        *repository.Store
 	cloudRepo    *repository.CloudRepository
+	aiClient     *ai.Client
 	systemSecret string
 }
 
-func NewCitizenServer(store *repository.Store, cloudRepo *repository.CloudRepository, secret string) *CitizenServer {
+func NewCitizenServer(store *repository.Store, cloudRepo *repository.CloudRepository, aiClient *ai.Client, secret string) *CitizenServer {
 	return &CitizenServer{
 		store:        store,
 		cloudRepo:    cloudRepo,
+		aiClient:     aiClient,
 		systemSecret: secret,
 	}
 }
@@ -38,15 +44,56 @@ func (s *CitizenServer) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cognitoID := r.Header.Get("X-Cognito-Id")
+	email := ""
+
+	// Fallback/Extraction: try to parse the Authorization header manually if Gateway missing headers or whitelisted
+	authHeader := r.Header.Get("Authorization")
+	if token := strings.TrimPrefix(authHeader, "Bearer "); token != "" && token != authHeader {
+		claims := jwt.MapClaims{}
+		_, _, err := new(jwt.Parser).ParseUnverified(token, claims)
+		if err == nil {
+			if sub, ok := claims["sub"].(string); ok && (cognitoID == "" || cognitoID != sub) {
+				cognitoID = sub
+			}
+			if em, ok := claims["email"].(string); ok {
+				email = em
+			}
+		}
+	}
+
 	if cognitoID == "" {
-		utils.WriteError(w, http.StatusUnauthorized, "identity required")
+		utils.WriteError(w, http.StatusUnauthorized, "identity required (missing x-cognito-id and fallback failed)")
 		return
 	}
 
+	// 2. Identity Resolution - Self Healing
+	fmt.Printf("Register: Attempting lookup for cognito_id=%s, email=%s\n", cognitoID, email)
 	citizen, err := s.store.GetCitizenByCognitoID(r.Context(), cognitoID)
 	if err != nil {
-		utils.WriteError(w, http.StatusNotFound, "citizen record not found")
-		return
+		// If not found by ID, try email fallback
+		fmt.Printf("Register: Cognito ID not found (%v), trying email fallback for %s\n", err, email)
+		if email != "" {
+			citizenByEmail, errEmail := s.store.GetCitizenByEmail(r.Context(), email)
+			if errEmail == nil {
+				// Found! Link the new cognito ID
+				fmt.Printf("Register: Found citizen by email. Linking current cognitoID=%s to citizenID=%s\n", cognitoID, citizenByEmail.ID)
+				errLink := s.store.UpdateCitizenCognitoID(r.Context(), sqlc.UpdateCitizenCognitoIDParams{
+					CognitoID: cognitoID,
+					ID:        citizenByEmail.ID,
+				})
+				if errLink != nil {
+					fmt.Printf("Register: Failed to link cognito ID: %v\n", errLink)
+				}
+				citizen = citizenByEmail
+			} else {
+				fmt.Printf("Register: Email fallback also failed: %v\n", errEmail)
+				utils.WriteError(w, http.StatusNotFound, "citizen record not found (identity mapping failed)")
+				return
+			}
+		} else {
+			utils.WriteError(w, http.StatusNotFound, "citizen record not found (no email to fallback)")
+			return
+		}
 	}
 
 	fmt.Printf("Completing citizen profile: %s\n", citizen.Email)
@@ -74,9 +121,22 @@ func (s *CitizenServer) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle face embedding
-	if len(req.FaceVector) > 0 {
-		vec := pgvector.NewVector(req.FaceVector)
+	// Handle face embedding (either direct vector or image-to-vector)
+	faceVector := req.FaceVector
+	if req.FaceImageB64 != "" && s.aiClient != nil {
+		imgData, err := base64.StdEncoding.DecodeString(req.FaceImageB64)
+		if err == nil {
+			vec, err := s.aiClient.ExtractEmbedding(imgData)
+			if err == nil {
+				faceVector = vec
+			} else {
+				fmt.Printf("AI extraction failed: %v\n", err)
+			}
+		}
+	}
+
+	if len(faceVector) > 0 {
+		vec := pgvector.NewVector(faceVector)
 		_ = s.store.UpdateCitizenFaceEmbedding(r.Context(), sqlc.UpdateCitizenFaceEmbeddingParams{
 			ID:            citizen.ID,
 			FaceEmbedding: &vec,
@@ -102,6 +162,147 @@ func (s *CitizenServer) Register(w http.ResponseWriter, r *http.Request) {
 
 	utils.WriteJSON(w, http.StatusOK, api.RegisterCitizenResponse{
 		Profile: mapCitizenToProfile(updatedCitizen),
+	})
+}
+
+// UpdateProfile updates all aspects of a citizen's profile.
+func (s *CitizenServer) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	var req api.UpdateProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+
+	cognitoID := r.Header.Get("X-Cognito-Id")
+	if cognitoID == "" {
+		utils.WriteError(w, http.StatusUnauthorized, "identity required")
+		return
+	}
+
+	citizen, err := s.store.GetCitizenByCognitoID(r.Context(), cognitoID)
+	if err != nil {
+		utils.WriteError(w, http.StatusNotFound, "citizen record not found")
+		return
+	}
+
+	ctx := r.Context()
+
+	// 1. Update Basic Info
+	var dob pgtype.Date
+	if req.DateOfBirth != "" {
+		t, err := time.Parse("2006-01-02", req.DateOfBirth)
+		if err == nil {
+			dob = pgtype.Date{Time: t, Valid: true}
+		}
+	} else {
+		dob = citizen.DateOfBirth
+	}
+
+	fullName := req.FullName
+	if fullName == "" {
+		fullName = citizen.FullName
+	}
+	phone := req.Phone
+	if phone == "" {
+		phone = citizen.Phone.String
+	}
+	gender := req.Gender
+	if gender == "" {
+		gender = citizen.Gender.String
+	}
+	address := req.Address
+	if address == "" {
+		address = citizen.Address.String
+	}
+	cccd := req.CccdNumber
+	if cccd == "" {
+		cccd = citizen.CccdNumber.String
+	}
+
+	updatedCitizen, err := s.store.UpdateCitizen(ctx, sqlc.UpdateCitizenParams{
+		ID:          citizen.ID,
+		FullName:    fullName,
+		Phone:       pgtype.Text{String: phone, Valid: phone != ""},
+		AvatarUrl:   pgtype.Text{String: req.AvatarUrl, Valid: req.AvatarUrl != ""},
+		DateOfBirth: dob,
+		Gender:      pgtype.Text{String: gender, Valid: gender != ""},
+		Address:     pgtype.Text{String: address, Valid: address != ""},
+		CccdNumber:  pgtype.Text{String: cccd, Valid: cccd != ""},
+	})
+
+	// 2. Update Emergency Contacts
+	if req.EmergencyContacts != nil {
+		contactsJSON, _ := json.Marshal(req.EmergencyContacts)
+		_ = s.store.UpdateCitizenEmergencyContacts(ctx, sqlc.UpdateCitizenEmergencyContactsParams{
+			ID:                citizen.ID,
+			EmergencyContacts: contactsJSON,
+		})
+		// Re-fetch to get updated contacts in response if needed, 
+		// but we'll just map from request for now or rely on the final object.
+		updatedCitizen.EmergencyContacts = contactsJSON
+	}
+
+	// 3. Update Medical Record
+	var finalMed sqlc.MedicalRecords
+	if req.MedicalRecord != nil {
+		// Try to see if record exists
+		med, errMed := s.store.GetMedicalRecord(ctx, citizen.ID)
+		if errMed != nil {
+			// Create
+			finalMed, err = s.store.CreateMedicalRecord(ctx, sqlc.CreateMedicalRecordParams{
+				CitizenID:           citizen.ID,
+				DistinguishingMarks: pgtype.Text{String: req.MedicalRecord.DistinguishingMarks, Valid: true},
+				BloodGroup:          pgtype.Text{String: req.MedicalRecord.BloodGroup, Valid: true},
+				Allergies:           req.MedicalRecord.Allergies,
+				BackgroundDiseases:  req.MedicalRecord.BackgroundDiseases,
+				CurrentMedications:  req.MedicalRecord.CurrentMedications,
+				Notes:               pgtype.Text{String: req.MedicalRecord.Notes, Valid: true},
+			})
+		} else {
+			// Update
+			finalMed, err = s.store.UpdateMedicalRecord(ctx, sqlc.UpdateMedicalRecordParams{
+				CitizenID:           citizen.ID,
+				DistinguishingMarks: pgtype.Text{String: req.MedicalRecord.DistinguishingMarks, Valid: true},
+				BloodGroup:          pgtype.Text{String: req.MedicalRecord.BloodGroup, Valid: true},
+				Allergies:           req.MedicalRecord.Allergies,
+				BackgroundDiseases:  req.MedicalRecord.BackgroundDiseases,
+				CurrentMedications:  req.MedicalRecord.CurrentMedications,
+				Notes:               pgtype.Text{String: req.MedicalRecord.Notes, Valid: true},
+			})
+		}
+	} else {
+		// Just fetch current if not updating
+		finalMed, _ = s.store.GetMedicalRecord(ctx, citizen.ID)
+	}
+
+	utils.WriteJSON(w, http.StatusOK, api.UpdateProfileResponse{
+		Profile:       mapCitizenToProfile(updatedCitizen),
+		MedicalRecord: mapMedicalRecord(finalMed),
+	})
+}
+
+// GetMedicalRecord returns the medical record for the authenticated citizen.
+func (s *CitizenServer) GetMedicalRecord(w http.ResponseWriter, r *http.Request) {
+	cognitoID := r.Header.Get("X-Cognito-Id")
+	if cognitoID == "" {
+		utils.WriteError(w, http.StatusUnauthorized, "identity required")
+		return
+	}
+
+	citizen, err := s.store.GetCitizenByCognitoID(r.Context(), cognitoID)
+	if err != nil {
+		utils.WriteError(w, http.StatusNotFound, "citizen record not found")
+		return
+	}
+
+	med, err := s.store.GetMedicalRecord(r.Context(), citizen.ID)
+	if err != nil {
+		utils.WriteJSON(w, http.StatusOK, api.GetMedicalRecordResponse{Record: nil})
+		return
+	}
+
+	utils.WriteJSON(w, http.StatusOK, api.GetMedicalRecordResponse{
+		Record: mapMedicalRecord(med),
 	})
 }
 
@@ -171,16 +372,36 @@ func (s *CitizenServer) VerifyIdentity(w http.ResponseWriter, r *http.Request) {
 		EmergencyContacts: mapEmergencyContacts(citizen.EmergencyContacts),
 	})
 }
-
-// SearchByFace searches citizens by face vector.
 func (s *CitizenServer) SearchByFace(w http.ResponseWriter, r *http.Request) {
 	var req api.SearchByFaceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")
+		utils.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	vec := pgvector.NewVector(req.FaceVector)
+	var faceVector []float32 = req.FaceVector
+
+	// If image is provided, call AI service to get vector
+	if req.FaceImageB64 != "" && s.aiClient != nil {
+		imgData, err := base64.StdEncoding.DecodeString(req.FaceImageB64)
+		if err != nil {
+			utils.WriteError(w, http.StatusBadRequest, "invalid base64 image")
+			return
+		}
+		vec, err := s.aiClient.ExtractEmbedding(imgData)
+		if err != nil {
+			utils.WriteError(w, http.StatusUnprocessableEntity, fmt.Sprintf("AI extraction failed: %v", err))
+			return
+		}
+		faceVector = vec
+	}
+
+	if len(faceVector) == 0 {
+		utils.WriteError(w, http.StatusBadRequest, "face vector or image required")
+		return
+	}
+
+	vec := pgvector.NewVector(faceVector)
 	hits, err := s.store.SearchCitizenByFace(r.Context(), sqlc.SearchCitizenByFaceParams{
 		FaceEmbedding: &vec,
 		Limit:         1,

@@ -104,7 +104,7 @@ INSERT INTO citizens (
 ) VALUES (
     $1, $2, $3, $4, $5
 )
-RETURNING id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, created_at, updated_at
+RETURNING id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, created_at, updated_at
 `
 
 type CreateCitizenParams struct {
@@ -140,6 +140,8 @@ func (q *Queries) CreateCitizen(ctx context.Context, arg CreateCitizenParams) (C
 		&i.CccdNumber,
 		&i.FaceEmbedding,
 		&i.EmergencyContacts,
+		&i.IsProfileUpdated,
+		&i.IsVerified,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -394,8 +396,27 @@ func (q *Queries) GetAdminByCognitoID(ctx context.Context, cognitoID string) (Ad
 	return i, err
 }
 
+const getAdminByEmail = `-- name: GetAdminByEmail :one
+SELECT id, cognito_id, email, full_name, avatar_url, created_at, updated_at FROM admins WHERE email = $1 LIMIT 1
+`
+
+func (q *Queries) GetAdminByEmail(ctx context.Context, email string) (Admins, error) {
+	row := q.db.QueryRow(ctx, getAdminByEmail, email)
+	var i Admins
+	err := row.Scan(
+		&i.ID,
+		&i.CognitoID,
+		&i.Email,
+		&i.FullName,
+		&i.AvatarUrl,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getCitizen = `-- name: GetCitizen :one
-SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, created_at, updated_at FROM citizens WHERE id = $1 LIMIT 1
+SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, created_at, updated_at FROM citizens WHERE id = $1 LIMIT 1
 `
 
 func (q *Queries) GetCitizen(ctx context.Context, id pgtype.UUID) (Citizens, error) {
@@ -414,6 +435,8 @@ func (q *Queries) GetCitizen(ctx context.Context, id pgtype.UUID) (Citizens, err
 		&i.CccdNumber,
 		&i.FaceEmbedding,
 		&i.EmergencyContacts,
+		&i.IsProfileUpdated,
+		&i.IsVerified,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -421,7 +444,7 @@ func (q *Queries) GetCitizen(ctx context.Context, id pgtype.UUID) (Citizens, err
 }
 
 const getCitizenByCognitoID = `-- name: GetCitizenByCognitoID :one
-SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, created_at, updated_at FROM citizens WHERE cognito_id = $1 LIMIT 1
+SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, created_at, updated_at FROM citizens WHERE cognito_id = $1 LIMIT 1
 `
 
 func (q *Queries) GetCitizenByCognitoID(ctx context.Context, cognitoID string) (Citizens, error) {
@@ -440,6 +463,8 @@ func (q *Queries) GetCitizenByCognitoID(ctx context.Context, cognitoID string) (
 		&i.CccdNumber,
 		&i.FaceEmbedding,
 		&i.EmergencyContacts,
+		&i.IsProfileUpdated,
+		&i.IsVerified,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -447,7 +472,7 @@ func (q *Queries) GetCitizenByCognitoID(ctx context.Context, cognitoID string) (
 }
 
 const getCitizenByEmail = `-- name: GetCitizenByEmail :one
-SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, created_at, updated_at FROM citizens WHERE email = $1 LIMIT 1
+SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, created_at, updated_at FROM citizens WHERE email = $1 LIMIT 1
 `
 
 func (q *Queries) GetCitizenByEmail(ctx context.Context, email string) (Citizens, error) {
@@ -466,6 +491,8 @@ func (q *Queries) GetCitizenByEmail(ctx context.Context, email string) (Citizens
 		&i.CccdNumber,
 		&i.FaceEmbedding,
 		&i.EmergencyContacts,
+		&i.IsProfileUpdated,
+		&i.IsVerified,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -699,30 +726,48 @@ func (q *Queries) SearchCitizenByFace(ctx context.Context, arg SearchCitizenByFa
 	return items, nil
 }
 
+const updateAdminCognitoID = `-- name: UpdateAdminCognitoID :exec
+UPDATE admins SET cognito_id = $1, updated_at = NOW() WHERE id = $2
+`
+
+type UpdateAdminCognitoIDParams struct {
+	CognitoID string      `json:"cognito_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateAdminCognitoID(ctx context.Context, arg UpdateAdminCognitoIDParams) error {
+	_, err := q.db.Exec(ctx, updateAdminCognitoID, arg.CognitoID, arg.ID)
+	return err
+}
+
 const updateCitizen = `-- name: UpdateCitizen :one
 UPDATE citizens
 SET
-    full_name    = $2,
-    phone        = $3,
-    avatar_url   = $4,
-    date_of_birth = $5,
-    gender       = $6,
-    address      = $7,
-    cccd_number  = $8,
-    updated_at   = NOW()
+    full_name          = $2,
+    phone              = $3,
+    avatar_url         = $4,
+    date_of_birth      = $5,
+    gender             = $6,
+    address            = $7,
+    cccd_number        = $8,
+    is_profile_updated = $9,
+    is_verified        = $10,
+    updated_at         = NOW()
 WHERE id = $1
-RETURNING id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, created_at, updated_at
+RETURNING id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, created_at, updated_at
 `
 
 type UpdateCitizenParams struct {
-	ID          pgtype.UUID `json:"id"`
-	FullName    string      `json:"full_name"`
-	Phone       pgtype.Text `json:"phone"`
-	AvatarUrl   pgtype.Text `json:"avatar_url"`
-	DateOfBirth pgtype.Date `json:"date_of_birth"`
-	Gender      pgtype.Text `json:"gender"`
-	Address     pgtype.Text `json:"address"`
-	CccdNumber  pgtype.Text `json:"cccd_number"`
+	ID               pgtype.UUID `json:"id"`
+	FullName         string      `json:"full_name"`
+	Phone            pgtype.Text `json:"phone"`
+	AvatarUrl        pgtype.Text `json:"avatar_url"`
+	DateOfBirth      pgtype.Date `json:"date_of_birth"`
+	Gender           pgtype.Text `json:"gender"`
+	Address          pgtype.Text `json:"address"`
+	CccdNumber       pgtype.Text `json:"cccd_number"`
+	IsProfileUpdated bool        `json:"is_profile_updated"`
+	IsVerified       bool        `json:"is_verified"`
 }
 
 func (q *Queries) UpdateCitizen(ctx context.Context, arg UpdateCitizenParams) (Citizens, error) {
@@ -735,6 +780,8 @@ func (q *Queries) UpdateCitizen(ctx context.Context, arg UpdateCitizenParams) (C
 		arg.Gender,
 		arg.Address,
 		arg.CccdNumber,
+		arg.IsProfileUpdated,
+		arg.IsVerified,
 	)
 	var i Citizens
 	err := row.Scan(
@@ -750,10 +797,40 @@ func (q *Queries) UpdateCitizen(ctx context.Context, arg UpdateCitizenParams) (C
 		&i.CccdNumber,
 		&i.FaceEmbedding,
 		&i.EmergencyContacts,
+		&i.IsProfileUpdated,
+		&i.IsVerified,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const updateCitizenCognitoID = `-- name: UpdateCitizenCognitoID :exec
+UPDATE citizens SET cognito_id = $1, updated_at = NOW() WHERE id = $2
+`
+
+type UpdateCitizenCognitoIDParams struct {
+	CognitoID string      `json:"cognito_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateCitizenCognitoID(ctx context.Context, arg UpdateCitizenCognitoIDParams) error {
+	_, err := q.db.Exec(ctx, updateCitizenCognitoID, arg.CognitoID, arg.ID)
+	return err
+}
+
+const updateCitizenEmergencyContacts = `-- name: UpdateCitizenEmergencyContacts :exec
+UPDATE citizens SET emergency_contacts = $2, updated_at = NOW() WHERE id = $1
+`
+
+type UpdateCitizenEmergencyContactsParams struct {
+	ID                pgtype.UUID `json:"id"`
+	EmergencyContacts []byte      `json:"emergency_contacts"`
+}
+
+func (q *Queries) UpdateCitizenEmergencyContacts(ctx context.Context, arg UpdateCitizenEmergencyContactsParams) error {
+	_, err := q.db.Exec(ctx, updateCitizenEmergencyContacts, arg.ID, arg.EmergencyContacts)
+	return err
 }
 
 const updateCitizenFaceEmbedding = `-- name: UpdateCitizenFaceEmbedding :exec

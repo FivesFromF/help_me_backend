@@ -13,7 +13,7 @@ import (
 
 var (
 	appClientID     = os.Getenv("APP_CLIENT_ID")
-	cognitoEndpoint = os.Getenv("COGNITO_ENDPOINT")
+	cognitoEndpoint = strings.TrimSuffix(os.Getenv("COGNITO_ENDPOINT"), "/")
 )
 
 type AuthorizerResponse struct {
@@ -28,46 +28,83 @@ func main() {
 func HandleRequest(ctx context.Context, request events.APIGatewayV2CustomAuthorizerV2Request) (AuthorizerResponse, error) {
 	reqPath := request.RequestContext.HTTP.Path
 
-	// Public paths — no token needed
-	publicPaths := []string{
-		"/signin",
-		"/user/verify",
-		"/user/search",
-	}
+	// Whitelist check (Bypass token validation but still try to extract context if present)
+	publicPaths := []string{"/signin", "/user/verify", "/user/search", "/user/register", "/health"}
+	isWhitelisted := false
 	for _, p := range publicPaths {
 		if strings.HasSuffix(reqPath, p) {
-			fmt.Printf("Authorizer: Whitelist bypass for: %s\n", p)
-			return AuthorizerResponse{IsAuthorized: true}, nil
+			isWhitelisted = true
+			break
 		}
 	}
 
-	// Token required for all other paths
-	if len(request.IdentitySource) == 0 || request.IdentitySource[0] == "" {
-		fmt.Printf("Authorizer: No token for protected path: %s\n", reqPath)
+	// 1. Bypass authentication for OPTIONS (CORS Preflight)
+	if request.RequestContext.HTTP.Method == "OPTIONS" {
+		fmt.Printf("Authorizer: Allow OPTIONS bypass for: %s\n", reqPath)
+		return AuthorizerResponse{IsAuthorized: true}, nil
+	}
+
+	// Token extraction
+	tokenStr := ""
+	if len(request.IdentitySource) > 0 && request.IdentitySource[0] != "" {
+		tokenStr = strings.TrimPrefix(request.IdentitySource[0], "Bearer ")
+	} else {
+		for k, v := range request.Headers {
+			if strings.ToLower(k) == "authorization" {
+				tokenStr = strings.TrimPrefix(v, "Bearer ")
+				break
+			}
+		}
+	}
+
+	if tokenStr == "" {
+		if isWhitelisted {
+			fmt.Printf("Authorizer: Allow (Whitelist/No Token) path: %s\n", reqPath)
+			return AuthorizerResponse{IsAuthorized: true}, nil
+		}
+		fmt.Printf("Authorizer: Forbidden - No token found for path: %s\n", reqPath)
 		return AuthorizerResponse{IsAuthorized: false}, nil
 	}
 
-	tokenStr := strings.TrimPrefix(request.IdentitySource[0], "Bearer ")
-
+	// 2. JWT Verification (Unverified parse first to see if we can even try to validate)
 	claims := jwt.MapClaims{}
 	_, _, err := new(jwt.Parser).ParseUnverified(tokenStr, claims)
 	if err != nil {
+		if isWhitelisted {
+			fmt.Printf("Authorizer: Allow (Whitelist/Bad Token) path: %s\n", reqPath)
+			return AuthorizerResponse{IsAuthorized: true}, nil
+		}
+		fmt.Printf("Authorizer: Forbidden - Failed to parse token: %v\n", err)
 		return AuthorizerResponse{IsAuthorized: false}, nil
 	}
 
-	if claims["iss"] != cognitoEndpoint {
-		fmt.Printf("Authorizer: Invalid issuer: %v\n", claims["iss"])
+	// 3. Validation (Issuer & Audience)
+	iss, _ := claims["iss"].(string)
+	iss = strings.TrimSuffix(iss, "/")
+	
+	clientID, _ := claims["client_id"].(string)
+	aud, _ := claims["aud"].(string)
+	
+	isValid := (iss == cognitoEndpoint) && (clientID == appClientID || aud == appClientID)
+
+	if !isValid {
+		if isWhitelisted {
+			fmt.Printf("Authorizer: Allow (Whitelist/Invalid Claims) path: %s issuer: %s\n", reqPath, iss)
+			return AuthorizerResponse{IsAuthorized: true}, nil
+		}
+		fmt.Printf("Authorizer: Forbidden - Invalid issuer or audience. Expected: %s, Got: %s\n", cognitoEndpoint, iss)
 		return AuthorizerResponse{IsAuthorized: false}, nil
 	}
 
-	if claims["client_id"] != appClientID && claims["aud"] != appClientID {
-		fmt.Printf("Authorizer: Invalid audience: %v\n", claims["client_id"])
+	// 4. Success - Populate Context
+	userID, _ := claims["sub"].(string)
+	if userID == "" {
+		if isWhitelisted {
+			return AuthorizerResponse{IsAuthorized: true}, nil
+		}
 		return AuthorizerResponse{IsAuthorized: false}, nil
 	}
 
-	userID := fmt.Sprintf("%v", claims["sub"])
-
-	// Extract role from Cognito Groups (Group precedence: admin > staff > citizen)
 	role := "citizen"
 	if groups, ok := claims["cognito:groups"].([]interface{}); ok {
 		for _, g := range groups {
@@ -81,7 +118,7 @@ func HandleRequest(ctx context.Context, request events.APIGatewayV2CustomAuthori
 		}
 	}
 
-	fmt.Printf("Authorizer: user=%s role=%s path=%s\n", userID, role, reqPath)
+	fmt.Printf("Authorizer: Allow (Verified) - user=%s role=%s path=%s\n", userID, role, reqPath)
 
 	return AuthorizerResponse{
 		IsAuthorized: true,

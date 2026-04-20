@@ -98,14 +98,117 @@ func (s *AuthServer) SignIn(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AuthServer) handleCitizenSignIn(w http.ResponseWriter, r *http.Request, accessToken, cognitoID, email, name string) {
-	citizen, err := s.store.GetCitizenByCognitoID(r.Context(), cognitoID)
+	ctx := r.Context()
+	userPoolID := os.Getenv("COGNITO_USER_POOL_ID")
+
+	// 1. Ensure user exists in Cognito and is linked to Google
+	// Note: We use email as the anchor for linking.
+	var finalCognitoSub string
+
+	// Check if user exists in Cognito
+	getUserOutput, err := s.cognitoClient.AdminGetUser(ctx, &cognitoidentityprovider.AdminGetUserInput{
+		UserPoolId: aws.String(userPoolID),
+		Username:   aws.String(email),
+	})
+
 	if err != nil {
-		if strings.Contains(err.Error(), "no rows in result set") {
-			// Auto-provision: Post Confirmation Lambda already added to Cognito Group,
-			// now create the DB record
-			fmt.Printf("Auto-provisioning citizen: %s\n", email)
-			citizen, err = s.store.CreateCitizen(r.Context(), sqlc.CreateCitizenParams{
-				CognitoID: cognitoID,
+		// If not found, create the user
+		fmt.Printf("User %s not found in Cognito, creating...\n", email)
+		createOutput, err := s.cognitoClient.AdminCreateUser(ctx, &cognitoidentityprovider.AdminCreateUserInput{
+			UserPoolId:             aws.String(userPoolID),
+			Username:               aws.String(email),
+			MessageAction:          types.MessageActionTypeSuppress,
+			UserAttributes: []types.AttributeType{
+				{Name: aws.String("email"), Value: aws.String(email)},
+				{Name: aws.String("email_verified"), Value: aws.String("true")},
+				{Name: aws.String("name"), Value: aws.String(name)},
+			},
+		})
+		if err != nil {
+			utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create cognito user: %v", err))
+			return
+		}
+		// Get the real Cognito Sub
+		for _, attr := range createOutput.User.Attributes {
+			if *attr.Name == "sub" {
+				finalCognitoSub = *attr.Value
+				break
+			}
+		}
+
+		// Add to Citizens group
+		_, _ = s.cognitoClient.AdminAddUserToGroup(ctx, &cognitoidentityprovider.AdminAddUserToGroupInput{
+			GroupName:  aws.String("Citizens"),
+			UserPoolId: aws.String(userPoolID),
+			Username:   aws.String(email),
+		})
+	} else {
+		// User exists, get their Sub
+		for _, attr := range getUserOutput.UserAttributes {
+			if *attr.Name == "sub" {
+				finalCognitoSub = *attr.Value
+				break
+			}
+		}
+	}
+
+	// 2. Link Google identity if this was a Google login
+	// We check if the provided cognitoID (from token) matches the finalCognitoSub.
+	// If it doesn't and contains dots or is from google issuer, it's likely a Google sub.
+	if cognitoID != finalCognitoSub {
+		fmt.Printf("Linking Google account for %s\n", email)
+		_, err = s.cognitoClient.AdminLinkProviderForUser(ctx, &cognitoidentityprovider.AdminLinkProviderForUserInput{
+			UserPoolId: aws.String(userPoolID),
+			DestinationUser: &types.ProviderUserIdentifierType{
+				ProviderName:           aws.String("Cognito"),
+				ProviderAttributeValue: aws.String(email),
+			},
+			SourceUser: &types.ProviderUserIdentifierType{
+				ProviderName:           aws.String("Google"),
+				ProviderAttributeName:  aws.String("Cognito_Subject"),
+				ProviderAttributeValue: aws.String(cognitoID),
+			},
+		})
+		// We ignore "Already linked" errors
+		if err != nil && !strings.Contains(err.Error(), "already linked") {
+			fmt.Printf("Warning: Failed to link provider: %v\n", err)
+		}
+	}
+
+	// 3. Exchange for real Cognito tokens using Admin Auth
+	// This ensures the App gets a token that the API Gateway Authorizer trusts.
+	authOutput, err := s.cognitoClient.AdminInitiateAuth(ctx, &cognitoidentityprovider.AdminInitiateAuthInput{
+		AuthFlow:   types.AuthFlowTypeAdminNoSrpAuth,
+		ClientId:   aws.String(s.appClientID),
+		UserPoolId: aws.String(userPoolID),
+		AuthParameters: map[string]string{
+			"USERNAME": email,
+		},
+	})
+	if err == nil && authOutput.AuthenticationResult != nil {
+		accessToken = *authOutput.AuthenticationResult.AccessToken
+	}
+
+	// 4. Sync with local Database - Self Healing
+	fmt.Printf("SignIn: Seeking record for cognito_id=%s, email=%s\n", finalCognitoSub, email)
+	citizen, err := s.store.GetCitizenByCognitoID(ctx, finalCognitoSub)
+	if err != nil {
+		// Fallback to email
+		fmt.Printf("SignIn: Cognito ID not found (%v), trying email fallback for %s\n", err, email)
+		citizenByEmail, errEmail := s.store.GetCitizenByEmail(ctx, email)
+		if errEmail == nil {
+			// Found by email! Link the ID
+			fmt.Printf("SignIn: Found citizen by email. Linking current sub=%s to citizenID=%s\n", finalCognitoSub, citizenByEmail.ID)
+			_ = s.store.UpdateCitizenCognitoID(ctx, sqlc.UpdateCitizenCognitoIDParams{
+				CognitoID: finalCognitoSub,
+				ID:        citizenByEmail.ID,
+			})
+			citizen = citizenByEmail
+		} else {
+			// Not found by either, provision new
+			fmt.Printf("SignIn: Provisioning NEW DB record for citizen: %s\n", email)
+			citizen, err = s.store.CreateCitizen(ctx, sqlc.CreateCitizenParams{
+				CognitoID: finalCognitoSub,
 				Email:     email,
 				FullName:  name,
 				Phone:     pgtype.Text{},
@@ -115,9 +218,6 @@ func (s *AuthServer) handleCitizenSignIn(w http.ResponseWriter, r *http.Request,
 				utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to provision citizen: %v", err))
 				return
 			}
-		} else {
-			utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to fetch citizen: %v", err))
-			return
 		}
 	}
 
@@ -145,8 +245,20 @@ func (s *AuthServer) handleStaffSignIn(w http.ResponseWriter, r *http.Request, a
 func (s *AuthServer) handleAdminSignIn(w http.ResponseWriter, r *http.Request, accessToken, cognitoID, email, name string) {
 	admin, err := s.store.GetAdminByCognitoID(r.Context(), cognitoID)
 	if err != nil {
-		if strings.Contains(err.Error(), "no rows in result set") {
-			fmt.Printf("Auto-provisioning admin: %s\n", email)
+		// Fallback to email
+		fmt.Printf("SignIn: Admin Cognito ID not found (%v), trying email fallback for %s\n", err, email)
+		adminByEmail, errEmail := s.store.GetAdminByEmail(r.Context(), email)
+		if errEmail == nil {
+			// Found by email! Link the ID
+			fmt.Printf("SignIn: Found admin by email. Linking current sub=%s to adminID=%s\n", cognitoID, adminByEmail.ID)
+			_ = s.store.UpdateAdminCognitoID(r.Context(), sqlc.UpdateAdminCognitoIDParams{
+				CognitoID: cognitoID,
+				ID:        adminByEmail.ID,
+			})
+			admin = adminByEmail
+		} else {
+			// Provision new
+			fmt.Printf("SignIn: Auto-provisioning admin: %s\n", email)
 			admin, err = s.store.CreateAdmin(r.Context(), sqlc.CreateAdminParams{
 				CognitoID: cognitoID,
 				Email:     email,
@@ -157,9 +269,6 @@ func (s *AuthServer) handleAdminSignIn(w http.ResponseWriter, r *http.Request, a
 				utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to provision admin: %v", err))
 				return
 			}
-		} else {
-			utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to fetch admin: %v", err))
-			return
 		}
 	}
 

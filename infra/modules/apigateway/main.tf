@@ -33,7 +33,9 @@ resource "aws_apigatewayv2_integration" "write" {
   
   request_parameters = {
     # This strips the /write-service/ prefix before sending to ALB
-    "overwrite:path" = "$request.path.proxy"
+    "overwrite:path"             = "$request.path.proxy"
+    "append:header.X-Cognito-Id" = "$context.authorizer.lambda.userId"
+    "append:header.X-Role"       = "$context.authorizer.lambda.role"
   }
 }
 
@@ -45,7 +47,9 @@ resource "aws_apigatewayv2_integration" "read" {
 
   request_parameters = {
     # This strips the /read-service/ prefix before sending to ALB
-    "overwrite:path" = "$request.path.proxy"
+    "overwrite:path"             = "$request.path.proxy"
+    "append:header.X-Cognito-Id" = "$context.authorizer.lambda.userId"
+    "append:header.X-Role"       = "$context.authorizer.lambda.role"
   }
 }
 

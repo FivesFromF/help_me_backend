@@ -45,6 +45,7 @@ type Querier interface {
 	CreateStaff(ctx context.Context, arg CreateStaffParams) (Staff, error)
 	GetAdmin(ctx context.Context, id pgtype.UUID) (Admins, error)
 	GetAdminByCognitoID(ctx context.Context, cognitoID string) (Admins, error)
+	GetAdminByEmail(ctx context.Context, email string) (Admins, error)
 	GetCitizen(ctx context.Context, id pgtype.UUID) (Citizens, error)
 	GetCitizenByCognitoID(ctx context.Context, cognitoID string) (Citizens, error)
 	GetCitizenByEmail(ctx context.Context, email string) (Citizens, error)
@@ -57,7 +58,10 @@ type Querier interface {
 	GetStaffByEmail(ctx context.Context, email string) (Staff, error)
 	ListStaff(ctx context.Context) ([]Staff, error)
 	SearchCitizenByFace(ctx context.Context, arg SearchCitizenByFaceParams) ([]SearchCitizenByFaceRow, error)
+	UpdateAdminCognitoID(ctx context.Context, arg UpdateAdminCognitoIDParams) error
 	UpdateCitizen(ctx context.Context, arg UpdateCitizenParams) (Citizens, error)
+	UpdateCitizenCognitoID(ctx context.Context, arg UpdateCitizenCognitoIDParams) error
+	UpdateCitizenEmergencyContacts(ctx context.Context, arg UpdateCitizenEmergencyContactsParams) error
 	UpdateCitizenFaceEmbedding(ctx context.Context, arg UpdateCitizenFaceEmbeddingParams) error
 	UpdateMedicalRecord(ctx context.Context, arg UpdateMedicalRecordParams) (MedicalRecords, error)
 	UpdateNFCLastUsed(ctx context.Context, id string) error

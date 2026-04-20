@@ -19,17 +19,25 @@ SELECT * FROM citizens WHERE cognito_id = $1 LIMIT 1;
 -- name: GetCitizenByEmail :one
 SELECT * FROM citizens WHERE email = $1 LIMIT 1;
 
+-- name: UpdateCitizenCognitoID :exec
+UPDATE citizens SET cognito_id = $1, updated_at = NOW() WHERE id = $2;
+
+-- name: UpdateCitizenEmergencyContacts :exec
+UPDATE citizens SET emergency_contacts = $2, updated_at = NOW() WHERE id = $1;
+
 -- name: UpdateCitizen :one
 UPDATE citizens
 SET
-    full_name    = $2,
-    phone        = $3,
-    avatar_url   = $4,
-    date_of_birth = $5,
-    gender       = $6,
-    address      = $7,
-    cccd_number  = $8,
-    updated_at   = NOW()
+    full_name          = $2,
+    phone              = $3,
+    avatar_url         = $4,
+    date_of_birth      = $5,
+    gender             = $6,
+    address            = $7,
+    cccd_number        = $8,
+    is_profile_updated = $9,
+    is_verified        = $10,
+    updated_at         = NOW()
 WHERE id = $1
 RETURNING *;
 
@@ -105,6 +113,12 @@ SELECT * FROM admins WHERE id = $1 LIMIT 1;
 
 -- name: GetAdminByCognitoID :one
 SELECT * FROM admins WHERE cognito_id = $1 LIMIT 1;
+
+-- name: GetAdminByEmail :one
+SELECT * FROM admins WHERE email = $1 LIMIT 1;
+
+-- name: UpdateAdminCognitoID :exec
+UPDATE admins SET cognito_id = $1, updated_at = NOW() WHERE id = $2;
 
 -- name: CountAdmins :one
 SELECT COUNT(*) FROM admins;

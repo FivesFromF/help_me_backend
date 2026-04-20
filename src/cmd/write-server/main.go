@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 
+	"github.com/fivesfromf/helpme/internal/ai"
 	"github.com/fivesfromf/helpme/internal/repository"
 	"github.com/fivesfromf/helpme/internal/services"
 	"github.com/joho/godotenv"
@@ -83,8 +84,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize AI Client
+	aiServerURL := os.Getenv("AI_SERVER_URL")
+	if aiServerURL == "" {
+		aiServerURL = "http://ai.helpme.local:8000" // Default internal DNS
+	}
+	aiClient := ai.NewClient(aiServerURL)
+
 	// Initialize Servers
-	citizenServer := services.NewCitizenServer(store, cloudRepo, systemSecret)
+	citizenServer := services.NewCitizenServer(store, cloudRepo, aiClient, systemSecret)
 	emergencyServer := services.NewEmergencyServer(store)
 	authServer := services.NewAuthServer(store, cognitoClient)
 	adminServer := services.NewAdminServer(store, cognitoClient, dynamicClient, auditTable, userPoolID)
@@ -97,6 +105,8 @@ func main() {
 
 	// 2. User Operations (Citizens)
 	mux.HandleFunc("POST /user/register", citizenServer.Register)
+	mux.HandleFunc("PUT /user/profile", citizenServer.UpdateProfile)
+	mux.HandleFunc("GET /user/medical-record", citizenServer.GetMedicalRecord)
 	mux.HandleFunc("POST /user/verify", citizenServer.VerifyIdentity)
 	mux.HandleFunc("POST /user/search", citizenServer.SearchByFace)
 

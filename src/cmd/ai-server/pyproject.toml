@@ -1,0 +1,17 @@
+[project]
+name = "face-ai"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "grpcio>=1.80.0",
+    "grpcio-tools>=1.80.0",
+    "mediapipe>=0.10.33",
+    "numpy>=2.4.4",
+    "opencv-python>=4.13.0.92",
+    "python-multipart>=0.0.22",
+    "timm>=1.0.26",
+    "torch>=2.11.0",
+    "torchvision>=0.26.0",
+]

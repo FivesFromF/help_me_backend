@@ -30,6 +30,9 @@ CREATE TABLE citizens (
     -- Emergency contacts (JSON array)
     emergency_contacts JSONB,
 
+    is_profile_updated BOOLEAN NOT NULL DEFAULT FALSE,
+    is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

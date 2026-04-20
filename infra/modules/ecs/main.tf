@@ -134,6 +134,16 @@ resource "aws_iam_policy" "ecs_cloud_access" {
         ]
         Effect   = "Allow"
         Resource = var.sessions_table_arn
+      },
+      {
+        Action   = [
+          "cognito-idp:AdminGetUser",
+          "cognito-idp:AdminCreateUser",
+          "cognito-idp:AdminLinkProviderForUser",
+          "cognito-idp:AdminAddUserToGroup"
+        ]
+        Effect   = "Allow"
+        Resource = "*" # Restrict to User Pool ARN if possible, but '*' is common for multi-resource Cognito tasks
       }
     ]
   })
@@ -408,4 +418,17 @@ output "read_service_endpoint" {
 
 output "app_tasks_sg_id" {
   value = aws_security_group.app_tasks.id
+}
+
+output "cluster_id" {
+  value = aws_ecs_cluster.main.id
+}
+
+output "execution_role_arn" {
+  value = aws_iam_role.ecs_execution_role.arn
+}
+
+variable "ai_server_url" {
+  type    = string
+  default = "http://ai.helpme.local:8000"
 }

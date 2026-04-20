@@ -3,7 +3,7 @@ resource "aws_cognito_user_pool" "pool" {
 
   # Standard attributes
   auto_verified_attributes = ["email"]
-  alias_attributes = ["email", "phone_number"]
+  username_attributes      = ["email"]
 
   # Lambda Triggers
   lambda_config {
@@ -67,7 +67,8 @@ resource "aws_cognito_user_pool_client" "client" {
   explicit_auth_flows = [
     "ALLOW_USER_PASSWORD_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH",
-    "ALLOW_USER_SRP_AUTH"
+    "ALLOW_USER_SRP_AUTH",
+    "ALLOW_ADMIN_USER_PASSWORD_AUTH"
   ]
 
   supported_identity_providers = ["COGNITO", "Google"]
