@@ -15,7 +15,10 @@ type CitizenProfile struct {
 	Gender            string    `json:"gender,omitempty"`
 	Address           string    `json:"address,omitempty"`
 	CccdNumber        string    `json:"cccdNumber,omitempty"`
-	CreatedAt         time.Time `json:"createdAt"`
+	IsProfileUpdated  bool      `json:"isProfileUpdated"`
+	IsVerified        bool          `json:"isVerified"`
+	EmergencyContacts []ContactInfo `json:"emergencyContacts,omitempty"`
+	CreatedAt         time.Time     `json:"createdAt"`
 }
 
 // ========= STAFF PROFILE =========
@@ -48,6 +51,7 @@ type AdminProfile struct {
 
 type SignInRequest struct {
 	AccessToken string `json:"accessToken,omitempty"`
+	Code        string `json:"code,omitempty"`
 	Email       string `json:"email,omitempty"`
 	Password    string `json:"password,omitempty"`
 }
@@ -185,6 +189,7 @@ type ContactInfo struct {
 	Name         string `json:"name"`
 	Relationship string `json:"relationship,omitempty"`
 	Phone        string `json:"phone,omitempty"`
+	BackupPhone  string `json:"backupPhone,omitempty"`
 	Email        string `json:"email,omitempty"`
 }
 

@@ -81,10 +81,10 @@ func HandleRequest(ctx context.Context, request events.APIGatewayV2CustomAuthori
 	// 3. Validation (Issuer & Audience)
 	iss, _ := claims["iss"].(string)
 	iss = strings.TrimSuffix(iss, "/")
-	
+
 	clientID, _ := claims["client_id"].(string)
 	aud, _ := claims["aud"].(string)
-	
+
 	isValid := (iss == cognitoEndpoint) && (clientID == appClientID || aud == appClientID)
 
 	if !isValid {

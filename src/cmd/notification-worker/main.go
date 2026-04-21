@@ -19,6 +19,7 @@ type ContactInfo struct {
 	Name         string `json:"name"`
 	Relationship string `json:"relationship"`
 	Phone        string `json:"phone"`
+	BackupPhone  string `json:"backupPhone"`
 	Email        string `json:"email"`
 }
 

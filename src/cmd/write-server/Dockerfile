@@ -1,14 +1,14 @@
-FROM public.ecr.aws/amazonlinux/amazonlinux:2023
+FROM golang:1.24-alpine AS builder
 
-WORKDIR /
+WORKDIR /app
+COPY go.mod ./
+RUN go mod download
+COPY . .
+RUN go build -o write-server ./cmd/write-server/main.go
 
-# Copy the pre-built Go binary from its cmd directory
-COPY src/cmd/write-server/bootstrap /bootstrap
-
-# Copy necessary assets from the src directory
-RUN mkdir -p /api/schema
-COPY src/api/schema/schema.sql /api/schema/schema.sql
-
+FROM alpine:latest
+WORKDIR /root/
+COPY --from=builder /app/write-server .
+COPY api/schema ./api/schema
 EXPOSE 8080
-
-CMD ["/bootstrap"]
+CMD ["./write-server"]

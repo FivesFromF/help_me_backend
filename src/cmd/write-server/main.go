@@ -106,7 +106,6 @@ func main() {
 	// 2. User Operations (Citizens)
 	mux.HandleFunc("POST /user/register", citizenServer.Register)
 	mux.HandleFunc("PUT /user/profile", citizenServer.UpdateProfile)
-	mux.HandleFunc("GET /user/medical-record", citizenServer.GetMedicalRecord)
 	mux.HandleFunc("POST /user/verify", citizenServer.VerifyIdentity)
 	mux.HandleFunc("POST /user/search", citizenServer.SearchByFace)
 

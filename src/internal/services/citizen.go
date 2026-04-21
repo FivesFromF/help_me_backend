@@ -115,6 +115,8 @@ func (s *CitizenServer) Register(w http.ResponseWriter, r *http.Request) {
 		Gender:      pgtype.Text{String: req.Gender, Valid: req.Gender != ""},
 		Address:     pgtype.Text{String: req.Address, Valid: req.Address != ""},
 		CccdNumber:  pgtype.Text{String: req.CccdNumber, Valid: req.CccdNumber != ""},
+		IsProfileUpdated: true,
+		IsVerified:   req.CccdNumber != "",
 	})
 	if err != nil {
 		utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update citizen: %v", err))
@@ -175,6 +177,18 @@ func (s *CitizenServer) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 
 	cognitoID := r.Header.Get("X-Cognito-Id")
 	if cognitoID == "" {
+		authHeader := r.Header.Get("Authorization")
+		if token := strings.TrimPrefix(authHeader, "Bearer "); token != "" && token != authHeader {
+			claims := jwt.MapClaims{}
+			_, _, err := new(jwt.Parser).ParseUnverified(token, claims)
+			if err == nil {
+				if sub, ok := claims["sub"].(string); ok {
+					cognitoID = sub
+				}
+			}
+		}
+	}
+	if cognitoID == "" {
 		utils.WriteError(w, http.StatusUnauthorized, "identity required")
 		return
 	}
@@ -228,15 +242,25 @@ func (s *CitizenServer) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		Gender:      pgtype.Text{String: gender, Valid: gender != ""},
 		Address:     pgtype.Text{String: address, Valid: address != ""},
 		CccdNumber:  pgtype.Text{String: cccd, Valid: cccd != ""},
+		IsProfileUpdated: true,
+		IsVerified:   cccd != "" || citizen.IsVerified,
 	})
+	if err != nil {
+		utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update citizen: %v", err))
+		return
+	}
 
 	// 2. Update Emergency Contacts
 	if req.EmergencyContacts != nil {
 		contactsJSON, _ := json.Marshal(req.EmergencyContacts)
-		_ = s.store.UpdateCitizenEmergencyContacts(ctx, sqlc.UpdateCitizenEmergencyContactsParams{
+		err = s.store.UpdateCitizenEmergencyContacts(ctx, sqlc.UpdateCitizenEmergencyContactsParams{
 			ID:                citizen.ID,
 			EmergencyContacts: contactsJSON,
 		})
+		if err != nil {
+			utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update emergency contacts: %v", err))
+			return
+		}
 		// Re-fetch to get updated contacts in response if needed, 
 		// but we'll just map from request for now or rely on the final object.
 		updatedCitizen.EmergencyContacts = contactsJSON
@@ -259,6 +283,7 @@ func (s *CitizenServer) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 				Notes:               pgtype.Text{String: req.MedicalRecord.Notes, Valid: true},
 			})
 		} else {
+			_ = med
 			// Update
 			finalMed, err = s.store.UpdateMedicalRecord(ctx, sqlc.UpdateMedicalRecordParams{
 				CitizenID:           citizen.ID,
@@ -269,6 +294,10 @@ func (s *CitizenServer) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 				CurrentMedications:  req.MedicalRecord.CurrentMedications,
 				Notes:               pgtype.Text{String: req.MedicalRecord.Notes, Valid: true},
 			})
+		}
+		if err != nil {
+			utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update medical record: %v", err))
+			return
 		}
 	} else {
 		// Just fetch current if not updating
@@ -284,6 +313,18 @@ func (s *CitizenServer) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 // GetMedicalRecord returns the medical record for the authenticated citizen.
 func (s *CitizenServer) GetMedicalRecord(w http.ResponseWriter, r *http.Request) {
 	cognitoID := r.Header.Get("X-Cognito-Id")
+	if cognitoID == "" {
+		authHeader := r.Header.Get("Authorization")
+		if token := strings.TrimPrefix(authHeader, "Bearer "); token != "" && token != authHeader {
+			claims := jwt.MapClaims{}
+			_, _, err := new(jwt.Parser).ParseUnverified(token, claims)
+			if err == nil {
+				if sub, ok := claims["sub"].(string); ok {
+					cognitoID = sub
+				}
+			}
+		}
+	}
 	if cognitoID == "" {
 		utils.WriteError(w, http.StatusUnauthorized, "identity required")
 		return
@@ -303,6 +344,37 @@ func (s *CitizenServer) GetMedicalRecord(w http.ResponseWriter, r *http.Request)
 
 	utils.WriteJSON(w, http.StatusOK, api.GetMedicalRecordResponse{
 		Record: mapMedicalRecord(med),
+	})
+}
+
+// GetProfile returns the complete profile for the authenticated citizen.
+func (s *CitizenServer) GetProfile(w http.ResponseWriter, r *http.Request) {
+	cognitoID := r.Header.Get("X-Cognito-Id")
+	if cognitoID == "" {
+		authHeader := r.Header.Get("Authorization")
+		if token := strings.TrimPrefix(authHeader, "Bearer "); token != "" && token != authHeader {
+			claims := jwt.MapClaims{}
+			_, _, err := new(jwt.Parser).ParseUnverified(token, claims)
+			if err == nil {
+				if sub, ok := claims["sub"].(string); ok {
+					cognitoID = sub
+				}
+			}
+		}
+	}
+	if cognitoID == "" {
+		utils.WriteError(w, http.StatusUnauthorized, "identity required")
+		return
+	}
+
+	citizen, err := s.store.GetCitizenByCognitoID(r.Context(), cognitoID)
+	if err != nil {
+		utils.WriteError(w, http.StatusNotFound, "citizen record not found")
+		return
+	}
+
+	utils.WriteJSON(w, http.StatusOK, api.RegisterCitizenResponse{
+		Profile: mapCitizenToProfile(citizen),
 	})
 }
 

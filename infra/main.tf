@@ -72,7 +72,7 @@ module "lambda" {
 module "auth" {
   source        = "./modules/auth"
   project_name  = var.project_name
-  random_suffix = random_string.suffix.result
+  random_suffix = var.random_suffix != "" ? var.random_suffix : random_string.suffix.result
   
   google_client_id     = var.google_client_id
   google_client_secret = var.google_client_secret
@@ -126,6 +126,12 @@ module "apigateway" {
   write_service_endpoint = module.ecs.write_service_endpoint
   read_service_endpoint  = module.ecs.read_service_endpoint
   authorizer_uri         = module.authorizer.authorizer_uri
+}
+
+variable "random_suffix" {
+  description = "Unique suffix for resources"
+  type        = string
+  default     = ""
 }
 
 module "ai_service" {

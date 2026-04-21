@@ -66,6 +66,8 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Register Read operations
+	mux.HandleFunc("GET /user/profile", citizenServer.GetProfile)
+	mux.HandleFunc("GET /user/medical-record", citizenServer.GetMedicalRecord)
 	mux.HandleFunc("POST /citizen/verify", citizenServer.VerifyIdentity)
 	mux.HandleFunc("POST /citizen/search", citizenServer.SearchByFace)
 
