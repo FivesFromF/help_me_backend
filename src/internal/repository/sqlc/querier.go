@@ -43,6 +43,8 @@ type Querier interface {
 	// Staff Queries
 	// =============================================
 	CreateStaff(ctx context.Context, arg CreateStaffParams) (Staff, error)
+	DeleteNFCTag(ctx context.Context, arg DeleteNFCTagParams) error
+	DeleteQRCode(ctx context.Context, arg DeleteQRCodeParams) error
 	GetAdmin(ctx context.Context, id pgtype.UUID) (Admins, error)
 	GetAdminByCognitoID(ctx context.Context, cognitoID string) (Admins, error)
 	GetAdminByEmail(ctx context.Context, email string) (Admins, error)
@@ -56,15 +58,20 @@ type Querier interface {
 	GetStaff(ctx context.Context, id pgtype.UUID) (Staff, error)
 	GetStaffByCognitoID(ctx context.Context, cognitoID string) (Staff, error)
 	GetStaffByEmail(ctx context.Context, email string) (Staff, error)
+	ListCitizenNFCTags(ctx context.Context, citizenID pgtype.UUID) ([]NfcTags, error)
+	ListCitizenQRCodes(ctx context.Context, citizenID pgtype.UUID) ([]QrCodes, error)
 	ListStaff(ctx context.Context) ([]Staff, error)
 	SearchCitizenByFace(ctx context.Context, arg SearchCitizenByFaceParams) ([]SearchCitizenByFaceRow, error)
 	UpdateAdminCognitoID(ctx context.Context, arg UpdateAdminCognitoIDParams) error
 	UpdateCitizen(ctx context.Context, arg UpdateCitizenParams) (Citizens, error)
+	UpdateCitizenBasicInfo(ctx context.Context, arg UpdateCitizenBasicInfoParams) error
 	UpdateCitizenCognitoID(ctx context.Context, arg UpdateCitizenCognitoIDParams) error
 	UpdateCitizenEmergencyContacts(ctx context.Context, arg UpdateCitizenEmergencyContactsParams) error
 	UpdateCitizenFaceEmbedding(ctx context.Context, arg UpdateCitizenFaceEmbeddingParams) error
 	UpdateMedicalRecord(ctx context.Context, arg UpdateMedicalRecordParams) (MedicalRecords, error)
 	UpdateNFCLastUsed(ctx context.Context, id string) error
+	UpdateNFCTagStatus(ctx context.Context, arg UpdateNFCTagStatusParams) (NfcTags, error)
+	UpdateQRCodeStatus(ctx context.Context, arg UpdateQRCodeStatusParams) (QrCodes, error)
 	UpdateQRLastUsed(ctx context.Context, id pgtype.UUID) error
 	UpdateStaff(ctx context.Context, arg UpdateStaffParams) (Staff, error)
 	UpdateStaffStatus(ctx context.Context, arg UpdateStaffStatusParams) (Staff, error)

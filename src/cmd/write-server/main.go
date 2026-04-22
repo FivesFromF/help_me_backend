@@ -92,7 +92,7 @@ func main() {
 	aiClient := ai.NewClient(aiServerURL)
 
 	// Initialize Servers
-	citizenServer := services.NewCitizenServer(store, cloudRepo, aiClient, systemSecret)
+	citizenServer := services.NewCitizenServer(store, cloudRepo, aiClient, cognitoClient, userPoolID, systemSecret)
 	emergencyServer := services.NewEmergencyServer(store)
 	authServer := services.NewAuthServer(store, cognitoClient)
 	adminServer := services.NewAdminServer(store, cognitoClient, dynamicClient, auditTable, userPoolID)
@@ -106,8 +106,12 @@ func main() {
 	// 2. User Operations (Citizens)
 	mux.HandleFunc("POST /user/register", citizenServer.Register)
 	mux.HandleFunc("PUT /user/profile", citizenServer.UpdateProfile)
-	mux.HandleFunc("POST /user/verify", citizenServer.VerifyIdentity)
-	mux.HandleFunc("POST /user/search", citizenServer.SearchByFace)
+	mux.HandleFunc("POST /user/nfc/link", citizenServer.LinkNFCTag)
+	mux.HandleFunc("PATCH /user/nfc/{id}/status", citizenServer.UpdateNFCTagStatus)
+	mux.HandleFunc("DELETE /user/nfc/{id}", citizenServer.DeleteNFCTag)
+	mux.HandleFunc("POST /user/qr/create", citizenServer.CreateQRCode)
+	mux.HandleFunc("PATCH /user/qr/{id}/status", citizenServer.UpdateQRCodeStatus)
+	mux.HandleFunc("DELETE /user/qr/{id}", citizenServer.DeleteQRCode)
 
 	// 3. Emergency Operations
 	mux.HandleFunc("POST /emergency/report", emergencyServer.ReportEmergency)

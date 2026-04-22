@@ -1,6 +1,5 @@
 param (
     [Parameter(Mandatory=$true)]
-    [ValidateSet("all", "lambda", "service")]
     [string]$Target,
 
     [Parameter(Mandatory=$false)]
@@ -8,6 +7,12 @@ param (
 
     [switch]$ForceRestart = $true
 )
+
+# --- AUTO-DETECT PATHS ---
+$PSScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$BACKEND_ROOT = Split-Path -Parent $PSScriptRoot
+Set-Location $BACKEND_ROOT
+Write-Host ">>> Working Directory: $BACKEND_ROOT" -ForegroundColor Gray
 
 # --- CONFIGURATION ---
 $PROJECT_NAME = "helpme"
@@ -89,20 +94,33 @@ function Build-Push-Lambda($lmbName) {
 # --- MAIN LOGIC ---
 
 try {
-    switch ($Target) {
-        "all" {
-            Write-Host "!!! ĐANG TRIỂN KHAI TOÀN BỘ HỆ THỐNG !!!" -ForegroundColor Magenta
-            foreach ($s in $SERVICE_MAP.Keys) { Build-Push-Service $s }
-            cd infra
-            terraform apply -auto-approve
-        }
-        "service" {
-            if (-not $Name) { throw "Thiếu tham số -Name (write|read|ai)" }
-            Build-Push-Service $Name
-        }
-        "lambda" {
-            if (-not $Name) { throw "Thiếu tham số -Name (authorizer|post-confirmation|audit|notification|grant)" }
-            Build-Push-Lambda $Name
+    # Check if Target is a specific service
+    if ($SERVICE_MAP.ContainsKey($Target)) {
+        Build-Push-Service $Target
+    }
+    # Check if Target is a specific lambda
+    elseif ($LAMBDA_MAP.ContainsKey($Target)) {
+        Build-Push-Lambda $Target
+    }
+    else {
+        switch ($Target) {
+            "all" {
+                Write-Host "!!! ĐANG TRIỂN KHAI TOÀN BỘ HỆ THỐNG !!!" -ForegroundColor Magenta
+                foreach ($s in $SERVICE_MAP.Keys) { Build-Push-Service $s }
+                cd infra
+                terraform apply -auto-approve
+            }
+            "service" {
+                if (-not $Name) { throw "Thiếu tham số -Name (write|read|ai)" }
+                Build-Push-Service $Name
+            }
+            "lambda" {
+                if (-not $Name) { throw "Thiếu tham số -Name (authorizer|post-confirmation|audit|notification|grant)" }
+                Build-Push-Lambda $Name
+            }
+            default {
+                Write-Error "Tham số -Target '$Target' không hợp lệ."
+            }
         }
     }
 } catch {

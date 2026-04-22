@@ -109,7 +109,19 @@ func (s *AuthServer) handleCitizenSignIn(w http.ResponseWriter, r *http.Request,
 	fmt.Printf("SignIn: Seeking record for cognito_id=%s, email=%s\n", cognitoID, email)
 	
 	citizen, err := s.store.GetCitizenByCognitoID(ctx, cognitoID)
-	if err != nil {
+	if err == nil {
+		// Existing user found - Ensure email/name are synced (Self-healing)
+		if citizen.Email == "" || citizen.FullName == "" {
+			fmt.Printf("SignIn: Syncing missing info for existing citizen: %s\n", email)
+			_ = s.store.UpdateCitizenBasicInfo(ctx, sqlc.UpdateCitizenBasicInfoParams{
+				ID:       citizen.ID,
+				Email:    email,
+				FullName: name,
+			})
+			// Re-fetch to get updated record
+			citizen, _ = s.store.GetCitizenByCognitoID(ctx, cognitoID)
+		}
+	} else {
 		// Fallback to email to handle cases where user existed before Cognito or ID changed
 		fmt.Printf("SignIn: Cognito ID not found (%v), trying email fallback for %s\n", err, email)
 		citizenByEmail, errEmail := s.store.GetCitizenByEmail(ctx, email)
@@ -220,15 +232,17 @@ func extractPrimaryRole(claims jwt.MapClaims) string {
 
 func mapCitizenToProfile(c sqlc.Citizens) *api.CitizenProfile {
 	p := &api.CitizenProfile{
-		ID:               utils.UUIDToString(c.ID),
-		CognitoID:        c.CognitoID,
-		Email:            c.Email,
-		FullName:         c.FullName,
-		Phone:            c.Phone.String,
-		AvatarUrl:        c.AvatarUrl.String,
-		IsProfileUpdated: c.IsProfileUpdated,
-		IsVerified:       c.IsVerified,
-		CreatedAt:        c.CreatedAt.Time,
+		ID:                  utils.UUIDToString(c.ID),
+		CognitoID:           c.CognitoID,
+		Email:               c.Email,
+		FullName:            c.FullName,
+		Phone:               c.Phone.String,
+		AvatarUrl:           c.AvatarUrl.String,
+		IsProfileUpdated:    c.IsProfileUpdated,
+		IsVerified:          c.IsVerified,
+		FirstDeclareProfile: c.FirstDeclareProfile,
+		ConsentRegulation:   c.ConsentRegulation,
+		CreatedAt:           c.CreatedAt.Time,
 	}
 	if len(c.EmergencyContacts) > 0 {
 		_ = json.Unmarshal(c.EmergencyContacts, &p.EmergencyContacts)

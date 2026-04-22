@@ -104,7 +104,7 @@ INSERT INTO citizens (
 ) VALUES (
     $1, $2, $3, $4, $5
 )
-RETURNING id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, created_at, updated_at
+RETURNING id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, first_declare_profile, consent_regulation, created_at, updated_at
 `
 
 type CreateCitizenParams struct {
@@ -142,6 +142,8 @@ func (q *Queries) CreateCitizen(ctx context.Context, arg CreateCitizenParams) (C
 		&i.EmergencyContacts,
 		&i.IsProfileUpdated,
 		&i.IsVerified,
+		&i.FirstDeclareProfile,
+		&i.ConsentRegulation,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -358,6 +360,34 @@ func (q *Queries) CreateStaff(ctx context.Context, arg CreateStaffParams) (Staff
 	return i, err
 }
 
+const deleteNFCTag = `-- name: DeleteNFCTag :exec
+DELETE FROM nfc_tags WHERE id = $1 AND citizen_id = $2
+`
+
+type DeleteNFCTagParams struct {
+	ID        string      `json:"id"`
+	CitizenID pgtype.UUID `json:"citizen_id"`
+}
+
+func (q *Queries) DeleteNFCTag(ctx context.Context, arg DeleteNFCTagParams) error {
+	_, err := q.db.Exec(ctx, deleteNFCTag, arg.ID, arg.CitizenID)
+	return err
+}
+
+const deleteQRCode = `-- name: DeleteQRCode :exec
+DELETE FROM qr_codes WHERE id = $1 AND citizen_id = $2
+`
+
+type DeleteQRCodeParams struct {
+	ID        pgtype.UUID `json:"id"`
+	CitizenID pgtype.UUID `json:"citizen_id"`
+}
+
+func (q *Queries) DeleteQRCode(ctx context.Context, arg DeleteQRCodeParams) error {
+	_, err := q.db.Exec(ctx, deleteQRCode, arg.ID, arg.CitizenID)
+	return err
+}
+
 const getAdmin = `-- name: GetAdmin :one
 SELECT id, cognito_id, email, full_name, avatar_url, created_at, updated_at FROM admins WHERE id = $1 LIMIT 1
 `
@@ -416,7 +446,7 @@ func (q *Queries) GetAdminByEmail(ctx context.Context, email string) (Admins, er
 }
 
 const getCitizen = `-- name: GetCitizen :one
-SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, created_at, updated_at FROM citizens WHERE id = $1 LIMIT 1
+SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, first_declare_profile, consent_regulation, created_at, updated_at FROM citizens WHERE id = $1 LIMIT 1
 `
 
 func (q *Queries) GetCitizen(ctx context.Context, id pgtype.UUID) (Citizens, error) {
@@ -437,6 +467,8 @@ func (q *Queries) GetCitizen(ctx context.Context, id pgtype.UUID) (Citizens, err
 		&i.EmergencyContacts,
 		&i.IsProfileUpdated,
 		&i.IsVerified,
+		&i.FirstDeclareProfile,
+		&i.ConsentRegulation,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -444,7 +476,7 @@ func (q *Queries) GetCitizen(ctx context.Context, id pgtype.UUID) (Citizens, err
 }
 
 const getCitizenByCognitoID = `-- name: GetCitizenByCognitoID :one
-SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, created_at, updated_at FROM citizens WHERE cognito_id = $1 LIMIT 1
+SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, first_declare_profile, consent_regulation, created_at, updated_at FROM citizens WHERE cognito_id = $1 LIMIT 1
 `
 
 func (q *Queries) GetCitizenByCognitoID(ctx context.Context, cognitoID string) (Citizens, error) {
@@ -465,6 +497,8 @@ func (q *Queries) GetCitizenByCognitoID(ctx context.Context, cognitoID string) (
 		&i.EmergencyContacts,
 		&i.IsProfileUpdated,
 		&i.IsVerified,
+		&i.FirstDeclareProfile,
+		&i.ConsentRegulation,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -472,7 +506,7 @@ func (q *Queries) GetCitizenByCognitoID(ctx context.Context, cognitoID string) (
 }
 
 const getCitizenByEmail = `-- name: GetCitizenByEmail :one
-SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, created_at, updated_at FROM citizens WHERE email = $1 LIMIT 1
+SELECT id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, first_declare_profile, consent_regulation, created_at, updated_at FROM citizens WHERE email = $1 LIMIT 1
 `
 
 func (q *Queries) GetCitizenByEmail(ctx context.Context, email string) (Citizens, error) {
@@ -493,6 +527,8 @@ func (q *Queries) GetCitizenByEmail(ctx context.Context, email string) (Citizens
 		&i.EmergencyContacts,
 		&i.IsProfileUpdated,
 		&i.IsVerified,
+		&i.FirstDeclareProfile,
+		&i.ConsentRegulation,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -645,6 +681,68 @@ func (q *Queries) GetStaffByEmail(ctx context.Context, email string) (Staff, err
 	return i, err
 }
 
+const listCitizenNFCTags = `-- name: ListCitizenNFCTags :many
+SELECT id, name, status, citizen_id, registered_at, last_used_at FROM nfc_tags WHERE citizen_id = $1 ORDER BY registered_at DESC
+`
+
+func (q *Queries) ListCitizenNFCTags(ctx context.Context, citizenID pgtype.UUID) ([]NfcTags, error) {
+	rows, err := q.db.Query(ctx, listCitizenNFCTags, citizenID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NfcTags
+	for rows.Next() {
+		var i NfcTags
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Status,
+			&i.CitizenID,
+			&i.RegisteredAt,
+			&i.LastUsedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCitizenQRCodes = `-- name: ListCitizenQRCodes :many
+SELECT id, name, status, citizen_id, created_at, last_used_at FROM qr_codes WHERE citizen_id = $1 ORDER BY created_at DESC
+`
+
+func (q *Queries) ListCitizenQRCodes(ctx context.Context, citizenID pgtype.UUID) ([]QrCodes, error) {
+	rows, err := q.db.Query(ctx, listCitizenQRCodes, citizenID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QrCodes
+	for rows.Next() {
+		var i QrCodes
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Status,
+			&i.CitizenID,
+			&i.CreatedAt,
+			&i.LastUsedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStaff = `-- name: ListStaff :many
 SELECT id, cognito_id, email, full_name, phone, avatar_url, hospital_name, department, status, created_at, updated_at FROM staff ORDER BY created_at DESC
 `
@@ -750,24 +848,28 @@ SET
     gender             = $6,
     address            = $7,
     cccd_number        = $8,
-    is_profile_updated = $9,
-    is_verified        = $10,
-    updated_at         = NOW()
+    is_profile_updated    = $9,
+    is_verified           = $10,
+    first_declare_profile = $11,
+    consent_regulation    = $12,
+    updated_at            = NOW()
 WHERE id = $1
-RETURNING id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, created_at, updated_at
+RETURNING id, cognito_id, email, full_name, phone, avatar_url, date_of_birth, gender, address, cccd_number, face_embedding, emergency_contacts, is_profile_updated, is_verified, first_declare_profile, consent_regulation, created_at, updated_at
 `
 
 type UpdateCitizenParams struct {
-	ID               pgtype.UUID `json:"id"`
-	FullName         string      `json:"full_name"`
-	Phone            pgtype.Text `json:"phone"`
-	AvatarUrl        pgtype.Text `json:"avatar_url"`
-	DateOfBirth      pgtype.Date `json:"date_of_birth"`
-	Gender           pgtype.Text `json:"gender"`
-	Address          pgtype.Text `json:"address"`
-	CccdNumber       pgtype.Text `json:"cccd_number"`
-	IsProfileUpdated bool        `json:"is_profile_updated"`
-	IsVerified       bool        `json:"is_verified"`
+	ID                  pgtype.UUID `json:"id"`
+	FullName            string      `json:"full_name"`
+	Phone               pgtype.Text `json:"phone"`
+	AvatarUrl           pgtype.Text `json:"avatar_url"`
+	DateOfBirth         pgtype.Date `json:"date_of_birth"`
+	Gender              pgtype.Text `json:"gender"`
+	Address             pgtype.Text `json:"address"`
+	CccdNumber          pgtype.Text `json:"cccd_number"`
+	IsProfileUpdated    bool        `json:"is_profile_updated"`
+	IsVerified          bool        `json:"is_verified"`
+	FirstDeclareProfile bool        `json:"first_declare_profile"`
+	ConsentRegulation   bool        `json:"consent_regulation"`
 }
 
 func (q *Queries) UpdateCitizen(ctx context.Context, arg UpdateCitizenParams) (Citizens, error) {
@@ -782,6 +884,8 @@ func (q *Queries) UpdateCitizen(ctx context.Context, arg UpdateCitizenParams) (C
 		arg.CccdNumber,
 		arg.IsProfileUpdated,
 		arg.IsVerified,
+		arg.FirstDeclareProfile,
+		arg.ConsentRegulation,
 	)
 	var i Citizens
 	err := row.Scan(
@@ -799,10 +903,27 @@ func (q *Queries) UpdateCitizen(ctx context.Context, arg UpdateCitizenParams) (C
 		&i.EmergencyContacts,
 		&i.IsProfileUpdated,
 		&i.IsVerified,
+		&i.FirstDeclareProfile,
+		&i.ConsentRegulation,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const updateCitizenBasicInfo = `-- name: UpdateCitizenBasicInfo :exec
+UPDATE citizens SET email = $2, full_name = $3 WHERE id = $1
+`
+
+type UpdateCitizenBasicInfoParams struct {
+	ID       pgtype.UUID `json:"id"`
+	Email    string      `json:"email"`
+	FullName string      `json:"full_name"`
+}
+
+func (q *Queries) UpdateCitizenBasicInfo(ctx context.Context, arg UpdateCitizenBasicInfoParams) error {
+	_, err := q.db.Exec(ctx, updateCitizenBasicInfo, arg.ID, arg.Email, arg.FullName)
+	return err
 }
 
 const updateCitizenCognitoID = `-- name: UpdateCitizenCognitoID :exec
@@ -902,6 +1023,52 @@ UPDATE nfc_tags SET last_used_at = NOW() WHERE id = $1
 func (q *Queries) UpdateNFCLastUsed(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, updateNFCLastUsed, id)
 	return err
+}
+
+const updateNFCTagStatus = `-- name: UpdateNFCTagStatus :one
+UPDATE nfc_tags SET status = $2 WHERE id = $1 RETURNING id, name, status, citizen_id, registered_at, last_used_at
+`
+
+type UpdateNFCTagStatusParams struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
+
+func (q *Queries) UpdateNFCTagStatus(ctx context.Context, arg UpdateNFCTagStatusParams) (NfcTags, error) {
+	row := q.db.QueryRow(ctx, updateNFCTagStatus, arg.ID, arg.Status)
+	var i NfcTags
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Status,
+		&i.CitizenID,
+		&i.RegisteredAt,
+		&i.LastUsedAt,
+	)
+	return i, err
+}
+
+const updateQRCodeStatus = `-- name: UpdateQRCodeStatus :one
+UPDATE qr_codes SET status = $2 WHERE id = $1 RETURNING id, name, status, citizen_id, created_at, last_used_at
+`
+
+type UpdateQRCodeStatusParams struct {
+	ID     pgtype.UUID `json:"id"`
+	Status string      `json:"status"`
+}
+
+func (q *Queries) UpdateQRCodeStatus(ctx context.Context, arg UpdateQRCodeStatusParams) (QrCodes, error) {
+	row := q.db.QueryRow(ctx, updateQRCodeStatus, arg.ID, arg.Status)
+	var i QrCodes
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Status,
+		&i.CitizenID,
+		&i.CreatedAt,
+		&i.LastUsedAt,
+	)
+	return i, err
 }
 
 const updateQRLastUsed = `-- name: UpdateQRLastUsed :exec

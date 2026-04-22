@@ -33,6 +33,9 @@ CREATE TABLE citizens (
     is_profile_updated BOOLEAN NOT NULL DEFAULT FALSE,
     is_verified BOOLEAN NOT NULL DEFAULT FALSE,
 
+    first_declare_profile BOOLEAN NOT NULL DEFAULT FALSE,
+    consent_regulation BOOLEAN NOT NULL DEFAULT FALSE,
+
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

@@ -9,6 +9,8 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/fivesfromf/helpme/internal/ai"
 	"github.com/fivesfromf/helpme/internal/repository"
 	"github.com/fivesfromf/helpme/internal/services"
@@ -45,6 +47,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Cognito Configuration
+	userPoolID := os.Getenv("COGNITO_USER_POOL_ID")
+	clientID := os.Getenv("COGNITO_CLIENT_ID")
+	if userPoolID == "" || clientID == "" {
+		fmt.Println("COGNITO_USER_POOL_ID and COGNITO_CLIENT_ID must be set")
+		os.Exit(1)
+	}
+
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		fmt.Printf("Failed to load AWS config: %v\n", err)
+		os.Exit(1)
+	}
+	cognitoClient := cognitoidentityprovider.NewFromConfig(cfg)
+
 	// System Secret for NFC/QR Hashing
 	systemSecret := os.Getenv("SYSTEM_SECRET")
 	if systemSecret == "" {
@@ -60,7 +77,7 @@ func main() {
 	aiClient := ai.NewClient(aiServerURL)
 
 	// Initialize Servers
-	citizenServer := services.NewCitizenServer(store, cloudRepo, aiClient, systemSecret)
+	citizenServer := services.NewCitizenServer(store, cloudRepo, aiClient, cognitoClient, userPoolID, systemSecret)
 	healthcareServer := services.NewHealthcareServer(store, cloudRepo)
 
 	mux := http.NewServeMux()
@@ -68,8 +85,10 @@ func main() {
 	// Register Read operations
 	mux.HandleFunc("GET /user/profile", citizenServer.GetProfile)
 	mux.HandleFunc("GET /user/medical-record", citizenServer.GetMedicalRecord)
-	mux.HandleFunc("POST /citizen/verify", citizenServer.VerifyIdentity)
-	mux.HandleFunc("POST /citizen/search", citizenServer.SearchByFace)
+	mux.HandleFunc("POST /user/verify", citizenServer.VerifyIdentity)
+	mux.HandleFunc("POST /user/search", citizenServer.SearchByFace)
+	mux.HandleFunc("GET /user/nfc", citizenServer.ListMyNFCTags)
+	mux.HandleFunc("GET /user/qr", citizenServer.ListMyQRCodes)
 
 	// Since getting emergency history is not implemented, we omit or keep a placeholder
 	// mux.HandleFunc("POST /emergency/history", emergencyServer.GetEmergencyHistory)

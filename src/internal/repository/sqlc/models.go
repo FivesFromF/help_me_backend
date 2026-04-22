@@ -20,22 +20,24 @@ type Admins struct {
 }
 
 type Citizens struct {
-	ID                pgtype.UUID        `json:"id"`
-	CognitoID         string             `json:"cognito_id"`
-	Email             string             `json:"email"`
-	FullName          string             `json:"full_name"`
-	Phone             pgtype.Text        `json:"phone"`
-	AvatarUrl         pgtype.Text        `json:"avatar_url"`
-	DateOfBirth       pgtype.Date        `json:"date_of_birth"`
-	Gender            pgtype.Text        `json:"gender"`
-	Address           pgtype.Text        `json:"address"`
-	CccdNumber        pgtype.Text        `json:"cccd_number"`
-	FaceEmbedding     *pgv.Vector        `json:"face_embedding"`
-	EmergencyContacts []byte             `json:"emergency_contacts"`
-	IsProfileUpdated  bool               `json:"is_profile_updated"`
-	IsVerified        bool               `json:"is_verified"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	ID                  pgtype.UUID        `json:"id"`
+	CognitoID           string             `json:"cognito_id"`
+	Email               string             `json:"email"`
+	FullName            string             `json:"full_name"`
+	Phone               pgtype.Text        `json:"phone"`
+	AvatarUrl           pgtype.Text        `json:"avatar_url"`
+	DateOfBirth         pgtype.Date        `json:"date_of_birth"`
+	Gender              pgtype.Text        `json:"gender"`
+	Address             pgtype.Text        `json:"address"`
+	CccdNumber          pgtype.Text        `json:"cccd_number"`
+	FaceEmbedding       *pgv.Vector        `json:"face_embedding"`
+	EmergencyContacts   []byte             `json:"emergency_contacts"`
+	IsProfileUpdated    bool               `json:"is_profile_updated"`
+	IsVerified          bool               `json:"is_verified"`
+	FirstDeclareProfile bool               `json:"first_declare_profile"`
+	ConsentRegulation   bool               `json:"consent_regulation"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
 
 type EmergencyReports struct {

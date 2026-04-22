@@ -5,20 +5,22 @@ import "time"
 // ========= CITIZEN PROFILE =========
 
 type CitizenProfile struct {
-	ID                string    `json:"id"`
-	CognitoID         string    `json:"cognitoId,omitempty"`
-	Email             string    `json:"email"`
-	FullName          string    `json:"fullName"`
-	Phone             string    `json:"phone,omitempty"`
-	AvatarUrl         string    `json:"avatarUrl,omitempty"`
-	DateOfBirth       string    `json:"dateOfBirth,omitempty"`
-	Gender            string    `json:"gender,omitempty"`
-	Address           string    `json:"address,omitempty"`
-	CccdNumber        string    `json:"cccdNumber,omitempty"`
-	IsProfileUpdated  bool      `json:"isProfileUpdated"`
-	IsVerified        bool          `json:"isVerified"`
-	EmergencyContacts []ContactInfo `json:"emergencyContacts,omitempty"`
-	CreatedAt         time.Time     `json:"createdAt"`
+	ID                  string        `json:"id"`
+	CognitoID           string        `json:"cognitoId,omitempty"`
+	Email               string        `json:"email"`
+	FullName            string        `json:"fullName"`
+	Phone               string        `json:"phone,omitempty"`
+	AvatarUrl           string        `json:"avatarUrl,omitempty"`
+	DateOfBirth         string        `json:"dateOfBirth,omitempty"`
+	Gender              string        `json:"gender,omitempty"`
+	Address             string        `json:"address,omitempty"`
+	CccdNumber          string        `json:"cccdNumber,omitempty"`
+	IsProfileUpdated    bool          `json:"isProfileUpdated"`
+	IsVerified          bool          `json:"isVerified"`
+	FirstDeclareProfile bool          `json:"firstDeclareProfile"`
+	ConsentRegulation   bool          `json:"consentRegulation"`
+	EmergencyContacts   []ContactInfo `json:"emergencyContacts,omitempty"`
+	CreatedAt           time.Time     `json:"createdAt"`
 }
 
 // ========= STAFF PROFILE =========
@@ -68,16 +70,18 @@ type SignInResponse struct {
 // ========= CITIZEN - REGISTER (Complete Profile) =========
 
 type RegisterCitizenRequest struct {
-	FullName    string   `json:"fullName"`
-	Phone       string   `json:"phone,omitempty"`
-	DateOfBirth string   `json:"dateOfBirth,omitempty"`
-	Gender      string   `json:"gender,omitempty"`
-	Address     string   `json:"address,omitempty"`
-	CccdNumber  string   `json:"cccdNumber,omitempty"`
-	AvatarUrl   string   `json:"avatarUrl,omitempty"`
-	FaceVector  []float32 `json:"faceVector,omitempty"`
-	FaceImageB64 string   `json:"faceImageB64,omitempty"`
+	FullName     string    `json:"fullName"`
+	Phone        string    `json:"phone,omitempty"`
+	DateOfBirth  string    `json:"dateOfBirth,omitempty"`
+	Gender       string    `json:"gender,omitempty"`
+	Address      string    `json:"address,omitempty"`
+	CccdNumber   string    `json:"cccdNumber,omitempty"`
+	AvatarUrl    string    `json:"avatarUrl,omitempty"`
+	FaceVector   []float32 `json:"faceVector,omitempty"`
+	FaceImageB64 string    `json:"faceImageB64,omitempty"`
 
+	FirstDeclareProfile  bool                `json:"firstDeclareProfile,omitempty"`
+	ConsentRegulation    bool                `json:"consentRegulation,omitempty"`
 	InitialMedicalRecord *MedicalRecordInput `json:"medicalRecord,omitempty"`
 }
 
@@ -88,15 +92,17 @@ type RegisterCitizenResponse struct {
 // ========= CITIZEN - UPDATE PROFILE (Unified) =========
 
 type UpdateProfileRequest struct {
-	FullName          string              `json:"fullName,omitempty"`
-	Phone             string              `json:"phone,omitempty"`
-	DateOfBirth       string              `json:"dateOfBirth,omitempty"`
-	Gender            string              `json:"gender,omitempty"`
-	Address           string              `json:"address,omitempty"`
-	CccdNumber        string              `json:"cccdNumber,omitempty"`
-	AvatarUrl         string              `json:"avatarUrl,omitempty"`
-	MedicalRecord     *MedicalRecordInput `json:"medicalRecord,omitempty"`
-	EmergencyContacts []ContactInfo       `json:"emergencyContacts,omitempty"`
+	FullName            string              `json:"fullName,omitempty"`
+	Phone               string              `json:"phone,omitempty"`
+	DateOfBirth         string              `json:"dateOfBirth,omitempty"`
+	Gender              string              `json:"gender,omitempty"`
+	Address             string              `json:"address,omitempty"`
+	CccdNumber          string              `json:"cccdNumber,omitempty"`
+	AvatarUrl           string              `json:"avatarUrl,omitempty"`
+	MedicalRecord       *MedicalRecordInput `json:"medicalRecord,omitempty"`
+	FirstDeclareProfile bool                `json:"firstDeclareProfile,omitempty"`
+	ConsentRegulation   bool                `json:"consentRegulation,omitempty"`
+	EmergencyContacts   []ContactInfo       `json:"emergencyContacts,omitempty"`
 }
 
 type UpdateProfileResponse struct {
@@ -129,8 +135,8 @@ type MedicalRecord struct {
 // ========= IDENTITY VERIFICATION =========
 
 type VerifyIdentityRequest struct {
-	NfcID          string `json:"nfcId,omitempty"`
-	QrID           string `json:"qrId,omitempty"`
+	NfcID           string `json:"nfcId,omitempty"`
+	QrID            string `json:"qrId,omitempty"`
 	HashedCitizenID string `json:"hashedCitizenId,omitempty"`
 }
 
@@ -138,6 +144,61 @@ type VerifyIdentityResponse struct {
 	Profile           *CitizenProfile `json:"profile"`
 	MedicalRecord     *MedicalRecord  `json:"medicalRecord,omitempty"`
 	EmergencyContacts []ContactInfo   `json:"emergencyContacts,omitempty"`
+}
+
+// ========= NFC TAG MANAGEMENT =========
+
+type LinkNFCTagRequest struct {
+	NfcID string `json:"nfcId"`
+	Name  string `json:"name,omitempty"`
+}
+
+type LinkNFCTagResponse struct {
+	HashedCitizenID string `json:"hashedCitizenId"`
+}
+
+type UpdateNFCTagStatusRequest struct {
+	Status string `json:"status"` // ACTIVE, INACTIVE
+}
+
+type NFCTagInfo struct {
+	ID           string     `json:"id"`
+	Name         string     `json:"name,omitempty"`
+	Status       string     `json:"status"`
+	RegisteredAt time.Time  `json:"registeredAt"`
+	LastUsedAt   *time.Time `json:"lastUsedAt,omitempty"`
+}
+
+type ListNFCTagsResponse struct {
+	Tags []NFCTagInfo `json:"tags"`
+}
+
+// ========= QR CODE MANAGEMENT =========
+
+type CreateQRCodeRequest struct {
+	Name string `json:"name,omitempty"`
+}
+
+type CreateQRCodeResponse struct {
+	ID              string `json:"id"`
+	HashedCitizenID string `json:"hashedCitizenId"`
+}
+
+type QRCodeInfo struct {
+	ID              string     `json:"id"`
+	Name            string     `json:"name,omitempty"`
+	Status          string     `json:"status"`
+	HashedCitizenID string     `json:"hashedCitizenId"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	LastUsedAt      *time.Time `json:"lastUsedAt,omitempty"`
+}
+
+type ListQRCodesResponse struct {
+	QRCodes []QRCodeInfo `json:"qrcodes"`
+}
+
+type UpdateQRCodeStatusRequest struct {
+	Status string `json:"status"` // ACTIVE, INACTIVE
 }
 
 // ========= FACE SEARCH =========
@@ -210,7 +271,7 @@ type RegisterStaffResponse struct {
 // ========= ADMIN: MANAGE STAFF =========
 
 type ManageStaffRequest struct {
-	StaffID  string `json:"staffId"`
+	StaffID   string `json:"staffId"`
 	NewStatus string `json:"newStatus,omitempty"` // active, inactive, suspended
 }
 

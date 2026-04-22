@@ -19,6 +19,9 @@ SELECT * FROM citizens WHERE cognito_id = $1 LIMIT 1;
 -- name: GetCitizenByEmail :one
 SELECT * FROM citizens WHERE email = $1 LIMIT 1;
 
+-- name: UpdateCitizenBasicInfo :exec
+UPDATE citizens SET email = $2, full_name = $3 WHERE id = $1;
+
 -- name: UpdateCitizenCognitoID :exec
 UPDATE citizens SET cognito_id = $1, updated_at = NOW() WHERE id = $2;
 
@@ -35,9 +38,11 @@ SET
     gender             = $6,
     address            = $7,
     cccd_number        = $8,
-    is_profile_updated = $9,
-    is_verified        = $10,
-    updated_at         = NOW()
+    is_profile_updated    = $9,
+    is_verified           = $10,
+    first_declare_profile = $11,
+    consent_regulation    = $12,
+    updated_at            = NOW()
 WHERE id = $1
 RETURNING *;
 
@@ -164,8 +169,17 @@ RETURNING *;
 -- name: GetNFCTag :one
 SELECT * FROM nfc_tags WHERE id = $1 LIMIT 1;
 
+-- name: ListCitizenNFCTags :many
+SELECT * FROM nfc_tags WHERE citizen_id = $1 ORDER BY registered_at DESC;
+
+-- name: UpdateNFCTagStatus :one
+UPDATE nfc_tags SET status = $2 WHERE id = $1 RETURNING *;
+
 -- name: UpdateNFCLastUsed :exec
 UPDATE nfc_tags SET last_used_at = NOW() WHERE id = $1;
+
+-- name: DeleteNFCTag :exec
+DELETE FROM nfc_tags WHERE id = $1 AND citizen_id = $2;
 
 -- =============================================
 -- QR Codes
@@ -181,6 +195,15 @@ SELECT * FROM qr_codes WHERE id = $1 LIMIT 1;
 
 -- name: UpdateQRLastUsed :exec
 UPDATE qr_codes SET last_used_at = NOW() WHERE id = $1;
+
+-- name: ListCitizenQRCodes :many
+SELECT * FROM qr_codes WHERE citizen_id = $1 ORDER BY created_at DESC;
+
+-- name: UpdateQRCodeStatus :one
+UPDATE qr_codes SET status = $2 WHERE id = $1 RETURNING *;
+
+-- name: DeleteQRCode :exec
+DELETE FROM qr_codes WHERE id = $1 AND citizen_id = $2;
 
 -- =============================================
 -- Emergency Reports

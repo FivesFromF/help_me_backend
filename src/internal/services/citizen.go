@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pgvector/pgvector-go"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/fivesfromf/helpme/internal/ai"
 	"github.com/fivesfromf/helpme/internal/api"
 	"github.com/fivesfromf/helpme/internal/repository"
@@ -20,19 +23,79 @@ import (
 )
 
 type CitizenServer struct {
-	store        *repository.Store
-	cloudRepo    *repository.CloudRepository
-	aiClient     *ai.Client
-	systemSecret string
+	store         *repository.Store
+	cloudRepo     *repository.CloudRepository
+	aiClient      *ai.Client
+	cognitoClient *cognitoidentityprovider.Client
+	userPoolID    string
+	systemSecret  string
 }
 
-func NewCitizenServer(store *repository.Store, cloudRepo *repository.CloudRepository, aiClient *ai.Client, secret string) *CitizenServer {
+func NewCitizenServer(
+	store *repository.Store,
+	cloudRepo *repository.CloudRepository,
+	aiClient *ai.Client,
+	cognitoClient *cognitoidentityprovider.Client,
+	userPoolID string,
+	secret string,
+) *CitizenServer {
 	return &CitizenServer{
-		store:        store,
-		cloudRepo:    cloudRepo,
-		aiClient:     aiClient,
-		systemSecret: secret,
+		store:         store,
+		cloudRepo:     cloudRepo,
+		aiClient:      aiClient,
+		cognitoClient: cognitoClient,
+		userPoolID:    userPoolID,
+		systemSecret:  secret,
 	}
+}
+
+// getOrCreateCitizen retrieves the citizen from DB, or syncs from Cognito if missing.
+func (s *CitizenServer) getOrCreateCitizen(ctx context.Context, cognitoID string) (sqlc.Citizens, error) {
+	// 1. Try DB
+	citizen, err := s.store.GetCitizenByCognitoID(ctx, cognitoID)
+	if err == nil {
+		return citizen, nil
+	}
+
+	// 2. Not in DB? Sync from Cognito (Self-Healing)
+	fmt.Printf("CitizenServer: Self-healing sync for cognito_id=%s\n", cognitoID)
+	user, err := s.cognitoClient.AdminGetUser(ctx, &cognitoidentityprovider.AdminGetUserInput{
+		UserPoolId: aws.String(s.userPoolID),
+		Username:   aws.String(cognitoID),
+	})
+	if err != nil {
+		return sqlc.Citizens{}, fmt.Errorf("failed to fetch user from cognito: %v", err)
+	}
+
+	email := ""
+	name := ""
+	for _, attr := range user.UserAttributes {
+		switch *attr.Name {
+		case "email":
+			email = *attr.Value
+		case "name":
+			name = *attr.Value
+		}
+	}
+
+	if name == "" {
+		name = email
+	}
+
+	// 3. Create in DB
+	newCitizen, err := s.store.CreateCitizen(ctx, sqlc.CreateCitizenParams{
+		CognitoID: cognitoID,
+		Email:     email,
+		FullName:  name,
+		Phone:     pgtype.Text{Valid: false},
+		AvatarUrl: pgtype.Text{Valid: false},
+	})
+	if err != nil {
+		return sqlc.Citizens{}, fmt.Errorf("failed to provision citizen in DB: %v", err)
+	}
+
+	fmt.Printf("CitizenServer: Successfully synchronized user %s from Cognito\n", email)
+	return newCitizen, nil
 }
 
 // Register completes the citizen profile after first Google login.
@@ -116,7 +179,9 @@ func (s *CitizenServer) Register(w http.ResponseWriter, r *http.Request) {
 		Address:     pgtype.Text{String: req.Address, Valid: req.Address != ""},
 		CccdNumber:  pgtype.Text{String: req.CccdNumber, Valid: req.CccdNumber != ""},
 		IsProfileUpdated: true,
-		IsVerified:   req.CccdNumber != "",
+		IsVerified:       req.CccdNumber != "",
+		FirstDeclareProfile: true,
+		ConsentRegulation:   req.ConsentRegulation || citizen.ConsentRegulation,
 	})
 	if err != nil {
 		utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update citizen: %v", err))
@@ -243,7 +308,9 @@ func (s *CitizenServer) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		Address:     pgtype.Text{String: address, Valid: address != ""},
 		CccdNumber:  pgtype.Text{String: cccd, Valid: cccd != ""},
 		IsProfileUpdated: true,
-		IsVerified:   cccd != "" || citizen.IsVerified,
+		IsVerified:       cccd != "" || citizen.IsVerified,
+		FirstDeclareProfile: req.FirstDeclareProfile || citizen.FirstDeclareProfile,
+		ConsentRegulation:   req.ConsentRegulation || citizen.ConsentRegulation,
 	})
 	if err != nil {
 		utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update citizen: %v", err))
@@ -500,7 +567,281 @@ func (s *CitizenServer) SearchByFace(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ========= NFC Management =========
+
+func (s *CitizenServer) LinkNFCTag(w http.ResponseWriter, r *http.Request) {
+	var req api.LinkNFCTagRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+
+	cognitoID := r.Header.Get("X-Cognito-Id")
+	citizen, err := s.getOrCreateCitizen(r.Context(), cognitoID)
+	if err != nil {
+		utils.WriteError(w, http.StatusNotFound, fmt.Sprintf("citizen not found: %v", err))
+		return
+	}
+
+	// 1. Check if already exists
+	existing, err := s.store.GetNFCTag(r.Context(), req.NfcID)
+	if err == nil {
+		if existing.CitizenID == citizen.ID {
+			// Already linked to this user, just return hash again if they need to re-write
+			utils.WriteJSON(w, http.StatusOK, api.LinkNFCTagResponse{
+				HashedCitizenID: utils.HashCitizenID(utils.UUIDToString(citizen.ID), s.systemSecret),
+			})
+			return
+		}
+		utils.WriteError(w, http.StatusConflict, "this tag is already linked to another user")
+		return
+	}
+
+	// 2. Link tag
+	_, err = s.store.CreateNFCTag(r.Context(), sqlc.CreateNFCTagParams{
+		ID:        req.NfcID,
+		Name:      pgtype.Text{String: req.Name, Valid: req.Name != ""},
+		Status:    "ACTIVE",
+		CitizenID: citizen.ID,
+	})
+	if err != nil {
+		utils.WriteError(w, http.StatusInternalServerError, "failed to link tag")
+		return
+	}
+
+	// 3. Return Hash for the app to write to tag
+	utils.WriteJSON(w, http.StatusCreated, api.LinkNFCTagResponse{
+		HashedCitizenID: utils.HashCitizenID(utils.UUIDToString(citizen.ID), s.systemSecret),
+	})
+}
+
+func (s *CitizenServer) ListMyNFCTags(w http.ResponseWriter, r *http.Request) {
+	cognitoID := r.Header.Get("X-Cognito-Id")
+	citizen, err := s.getOrCreateCitizen(r.Context(), cognitoID)
+	if err != nil {
+		utils.WriteError(w, http.StatusNotFound, fmt.Sprintf("citizen not found: %v", err))
+		return
+	}
+
+	tags, err := s.store.ListCitizenNFCTags(r.Context(), citizen.ID)
+	if err != nil {
+		utils.WriteJSON(w, http.StatusOK, api.ListNFCTagsResponse{Tags: []api.NFCTagInfo{}})
+		return
+	}
+
+	resp := make([]api.NFCTagInfo, len(tags))
+	for i, t := range tags {
+		resp[i] = mapNFCTagInfo(t)
+	}
+
+	utils.WriteJSON(w, http.StatusOK, api.ListNFCTagsResponse{Tags: resp})
+}
+
+func (s *CitizenServer) UpdateNFCTagStatus(w http.ResponseWriter, r *http.Request) {
+	nfcID := r.PathValue("id")
+	var req api.UpdateNFCTagStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.WriteError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+
+	cognitoID := r.Header.Get("X-Cognito-Id")
+	citizen, err := s.getOrCreateCitizen(r.Context(), cognitoID)
+	if err != nil {
+		utils.WriteError(w, http.StatusNotFound, fmt.Sprintf("citizen not found: %v", err))
+		return
+	}
+
+	tag, err := s.store.GetNFCTag(r.Context(), nfcID)
+	if err != nil || tag.CitizenID != citizen.ID {
+		utils.WriteError(w, http.StatusNotFound, "tag not found or access denied")
+		return
+	}
+
+	_, err = s.store.UpdateNFCTagStatus(r.Context(), sqlc.UpdateNFCTagStatusParams{
+		ID:     nfcID,
+		Status: req.Status,
+	})
+	if err != nil {
+		utils.WriteError(w, http.StatusInternalServerError, "failed to update tag")
+		return
+	}
+
+	utils.WriteError(w, http.StatusNoContent, "")
+}
+
+func (s *CitizenServer) DeleteNFCTag(w http.ResponseWriter, r *http.Request) {
+	nfcID := r.PathValue("id")
+	cognitoID := r.Header.Get("X-Cognito-Id")
+	citizen, err := s.getOrCreateCitizen(r.Context(), cognitoID)
+	if err != nil {
+		utils.WriteError(w, http.StatusNotFound, fmt.Sprintf("citizen not found: %v", err))
+		return
+	}
+
+	err = s.store.DeleteNFCTag(r.Context(), sqlc.DeleteNFCTagParams{
+		ID:        nfcID,
+		CitizenID: citizen.ID,
+	})
+	if err != nil {
+		utils.WriteError(w, http.StatusInternalServerError, "failed to delete tag")
+		return
+	}
+
+	utils.WriteError(w, http.StatusNoContent, "")
+}
+
+// ========= QR Code Management =========
+
+func (s *CitizenServer) CreateQRCode(w http.ResponseWriter, r *http.Request) {
+	var req api.CreateQRCodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+
+	cognitoID := r.Header.Get("X-Cognito-Id")
+	citizen, err := s.getOrCreateCitizen(r.Context(), cognitoID)
+	if err != nil {
+		utils.WriteError(w, http.StatusNotFound, fmt.Sprintf("citizen not found: %v", err))
+		return
+	}
+
+	qr, err := s.store.CreateQRCode(r.Context(), sqlc.CreateQRCodeParams{
+		Name:      pgtype.Text{String: req.Name, Valid: req.Name != ""},
+		Status:    "ACTIVE",
+		CitizenID: citizen.ID,
+	})
+	if err != nil {
+		utils.WriteError(w, http.StatusInternalServerError, "failed to create QR code")
+		return
+	}
+
+	utils.WriteJSON(w, http.StatusCreated, api.CreateQRCodeResponse{
+		ID:              utils.UUIDToString(qr.ID),
+		HashedCitizenID: utils.HashCitizenID(utils.UUIDToString(citizen.ID), s.systemSecret),
+	})
+}
+
+func (s *CitizenServer) ListMyQRCodes(w http.ResponseWriter, r *http.Request) {
+	cognitoID := r.Header.Get("X-Cognito-Id")
+	citizen, err := s.getOrCreateCitizen(r.Context(), cognitoID)
+	if err != nil {
+		utils.WriteError(w, http.StatusNotFound, fmt.Sprintf("citizen not found: %v", err))
+		return
+	}
+
+	codes, err := s.store.ListCitizenQRCodes(r.Context(), citizen.ID)
+	if err != nil {
+		utils.WriteJSON(w, http.StatusOK, api.ListQRCodesResponse{QRCodes: []api.QRCodeInfo{}})
+		return
+	}
+
+	hashedID := utils.HashCitizenID(utils.UUIDToString(citizen.ID), s.systemSecret)
+	resp := make([]api.QRCodeInfo, len(codes))
+	for i, c := range codes {
+		resp[i] = mapQRCodeInfo(c, hashedID)
+	}
+
+	utils.WriteJSON(w, http.StatusOK, api.ListQRCodesResponse{QRCodes: resp})
+}
+
+func (s *CitizenServer) UpdateQRCodeStatus(w http.ResponseWriter, r *http.Request) {
+	qrIDStr := r.PathValue("id")
+	var req api.UpdateQRCodeStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.WriteError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+
+	var qrID pgtype.UUID
+	if err := qrID.Scan(qrIDStr); err != nil {
+		utils.WriteError(w, http.StatusBadRequest, "invalid QR ID format")
+		return
+	}
+
+	cognitoID := r.Header.Get("X-Cognito-Id")
+	citizen, err := s.getOrCreateCitizen(r.Context(), cognitoID)
+	if err != nil {
+		utils.WriteError(w, http.StatusNotFound, fmt.Sprintf("citizen not found: %v", err))
+		return
+	}
+
+	qr, err := s.store.GetQRCode(r.Context(), qrID)
+	if err != nil || qr.CitizenID != citizen.ID {
+		utils.WriteError(w, http.StatusNotFound, "QR code not found or access denied")
+		return
+	}
+
+	_, err = s.store.UpdateQRCodeStatus(r.Context(), sqlc.UpdateQRCodeStatusParams{
+		ID:     qrID,
+		Status: req.Status,
+	})
+	if err != nil {
+		utils.WriteError(w, http.StatusInternalServerError, "failed to update QR code")
+		return
+	}
+
+	utils.WriteError(w, http.StatusNoContent, "")
+}
+
+func (s *CitizenServer) DeleteQRCode(w http.ResponseWriter, r *http.Request) {
+	qrIDStr := r.PathValue("id")
+	var qrID pgtype.UUID
+	if err := qrID.Scan(qrIDStr); err != nil {
+		utils.WriteError(w, http.StatusBadRequest, "invalid QR ID format")
+		return
+	}
+
+	cognitoID := r.Header.Get("X-Cognito-Id")
+	citizen, err := s.getOrCreateCitizen(r.Context(), cognitoID)
+	if err != nil {
+		utils.WriteError(w, http.StatusNotFound, fmt.Sprintf("citizen not found: %v", err))
+		return
+	}
+
+	err = s.store.DeleteQRCode(r.Context(), sqlc.DeleteQRCodeParams{
+		ID:        qrID,
+		CitizenID: citizen.ID,
+	})
+	if err != nil {
+		utils.WriteError(w, http.StatusInternalServerError, "failed to delete QR code")
+		return
+	}
+
+	utils.WriteError(w, http.StatusNoContent, "")
+}
+
 // ------- Mappers -------
+
+func mapQRCodeInfo(c sqlc.QrCodes, hashedID string) api.QRCodeInfo {
+	var lastUsed *time.Time
+	if c.LastUsedAt.Valid {
+		lastUsed = &c.LastUsedAt.Time
+	}
+	return api.QRCodeInfo{
+		ID:              utils.UUIDToString(c.ID),
+		Name:            c.Name.String,
+		Status:          c.Status,
+		HashedCitizenID: hashedID,
+		CreatedAt:       c.CreatedAt.Time,
+		LastUsedAt:      lastUsed,
+	}
+}
+
+func mapNFCTagInfo(t sqlc.NfcTags) api.NFCTagInfo {
+	var lastUsed *time.Time
+	if t.LastUsedAt.Valid {
+		lastUsed = &t.LastUsedAt.Time
+	}
+	return api.NFCTagInfo{
+		ID:           t.ID,
+		Name:         t.Name.String,
+		Status:       t.Status,
+		RegisteredAt: t.RegisteredAt.Time,
+		LastUsedAt:   lastUsed,
+	}
+}
 
 func mapMedicalRecord(m sqlc.MedicalRecords) *api.MedicalRecord {
 	return &api.MedicalRecord{
