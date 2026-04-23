@@ -99,6 +99,8 @@ type UpdateProfileRequest struct {
 	Address             string              `json:"address,omitempty"`
 	CccdNumber          string              `json:"cccdNumber,omitempty"`
 	AvatarUrl           string              `json:"avatarUrl,omitempty"`
+	FaceImageB64        string              `json:"faceImageB64,omitempty"`
+	FaceVector          []float32           `json:"faceVector,omitempty"`
 	MedicalRecord       *MedicalRecordInput `json:"medicalRecord,omitempty"`
 	FirstDeclareProfile bool                `json:"firstDeclareProfile,omitempty"`
 	ConsentRegulation   bool                `json:"consentRegulation,omitempty"`

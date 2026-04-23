@@ -25,15 +25,17 @@ type AdminServer struct {
 	dbClient      *dynamodb.Client
 	auditTable    string
 	userPoolID    string
+	s3Service     *utils.S3Service
 }
 
-func NewAdminServer(store *repository.Store, cognitoClient *cognitoidentityprovider.Client, dbClient *dynamodb.Client, auditTable, userPoolID string) *AdminServer {
+func NewAdminServer(store *repository.Store, cognitoClient *cognitoidentityprovider.Client, dbClient *dynamodb.Client, auditTable, userPoolID string, s3Service *utils.S3Service) *AdminServer {
 	return &AdminServer{
 		store:         store,
 		cognitoClient: cognitoClient,
 		dbClient:      dbClient,
 		auditTable:    auditTable,
 		userPoolID:    userPoolID,
+		s3Service:     s3Service,
 	}
 }
 
@@ -61,8 +63,8 @@ func (s *AdminServer) ListStaff(w http.ResponseWriter, r *http.Request) {
 	}
 
 	profiles := make([]*api.StaffProfile, len(staffList))
-	for i, s := range staffList {
-		profiles[i] = mapStaffToProfile(s)
+	for i, staffRec := range staffList {
+		profiles[i] = mapStaffToProfile(r.Context(), staffRec, s.s3Service)
 	}
 
 	utils.WriteJSON(w, http.StatusOK, map[string]interface{}{"staff": profiles})
@@ -92,7 +94,7 @@ func (s *AdminServer) ManageStaff(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.WriteJSON(w, http.StatusOK, api.ManageStaffResponse{
-		Profile: mapStaffToProfile(updatedStaff),
+		Profile: mapStaffToProfile(r.Context(), updatedStaff, s.s3Service),
 	})
 }
 
@@ -142,7 +144,7 @@ func (s *AdminServer) RegisterStaff(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.WriteJSON(w, http.StatusOK, api.RegisterStaffResponse{
-		Profile: mapStaffToProfile(staff),
+		Profile: mapStaffToProfile(r.Context(), staff, s.s3Service),
 	})
 }
 

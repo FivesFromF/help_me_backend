@@ -39,18 +39,13 @@ async def extract_embedding(image: UploadFile = File(...)):
                 "embedding": result # 512 floats
             }
         else:
-            return {
-                "success": False,
-                "message": result, # e.g., "No face detected", "Face tilted"
-                "embedding": []
-            }
+            raise HTTPException(status_code=400, detail=result)
+    except HTTPException:
+        # Re-raise HTTPException so FastAPI can handle it with the correct status code
+        raise
     except Exception as e:
-        # Prevent server from crashing on unexpected errors
-        return {
-            "success": False,
-            "message": f"Internal AI Server Error: {str(e)}",
-            "embedding": []
-        }
+        # Unexpected server errors should return 500
+        raise HTTPException(status_code=500, detail=f"Internal AI Server Error: {str(e)}")
 
 @app.get("/health")
 def health():

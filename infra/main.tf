@@ -80,6 +80,23 @@ module "auth" {
   post_confirmation_lambda_arn = module.lambda.post_confirmation_lambda_arn
 }
 
+module "s3" {
+  source        = "./modules/s3"
+  project_name  = var.project_name
+  random_suffix = var.random_suffix != "" ? var.random_suffix : random_string.suffix.result
+}
+
+module "ai_service" {
+  source                         = "./modules/ai_service"
+  project_name                   = var.project_name
+  vpc_id                         = module.vpc.vpc_id
+  public_subnet_ids              = module.vpc.public_subnets
+  app_tasks_sg_id                = module.ecs.app_tasks_sg_id
+  execution_role_arn             = module.ecs.execution_role_arn
+  cluster_id                     = module.ecs.cluster_id
+  service_discovery_namespace_id = module.vpc.service_discovery_namespace_id
+}
+
 module "authorizer" {
   source             = "./modules/authorizer"
   project_name       = var.project_name
@@ -118,6 +135,10 @@ module "ecs" {
   user_pool_id     = module.auth.user_pool_id
   client_id        = module.auth.client_id
   audit_table_name = module.dynamodb.audit_table_name
+
+  # S3 Avatars
+  avatars_bucket_name = module.s3.bucket_name
+  avatars_bucket_arn  = module.s3.bucket_arn
 }
 
 module "apigateway" {
@@ -134,16 +155,7 @@ variable "random_suffix" {
   default     = ""
 }
 
-module "ai_service" {
-  source                         = "./modules/ai_service"
-  project_name                   = var.project_name
-  vpc_id                         = module.vpc.vpc_id
-  public_subnet_ids              = module.vpc.public_subnets
-  app_tasks_sg_id                = module.ecs.app_tasks_sg_id
-  execution_role_arn             = module.ecs.execution_role_arn
-  cluster_id                     = module.ecs.cluster_id
-  service_discovery_namespace_id = module.vpc.service_discovery_namespace_id
-}
+
 
 output "bastion_instance_id" {
   value = module.bastion.instance_id

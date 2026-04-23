@@ -34,3 +34,12 @@ client_secret_310556282701-v8ou06paidmvdh0v6rc7njprchnhgidu.apps.googleuserconte
 *.zip
 bootstrap
 .env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+*.log

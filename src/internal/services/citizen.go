@@ -29,6 +29,7 @@ type CitizenServer struct {
 	cognitoClient *cognitoidentityprovider.Client
 	userPoolID    string
 	systemSecret  string
+	s3Service     *utils.S3Service
 }
 
 func NewCitizenServer(
@@ -38,6 +39,7 @@ func NewCitizenServer(
 	cognitoClient *cognitoidentityprovider.Client,
 	userPoolID string,
 	secret string,
+	s3Service *utils.S3Service,
 ) *CitizenServer {
 	return &CitizenServer{
 		store:         store,
@@ -46,6 +48,7 @@ func NewCitizenServer(
 		cognitoClient: cognitoClient,
 		userPoolID:    userPoolID,
 		systemSecret:  secret,
+		s3Service:     s3Service,
 	}
 }
 
@@ -169,17 +172,58 @@ func (s *CitizenServer) Register(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 3. Handle Face Identification (Enforcement: AI extraction must succeed before S3/DB storage)
+	var faceVector []float32
+	finalAvatarUrl := req.AvatarUrl
+
+	if req.FaceImageB64 != "" {
+		if s.aiClient == nil {
+			utils.WriteError(w, http.StatusServiceUnavailable, "AI service not configured")
+			return
+		}
+
+		imgData, err := base64.StdEncoding.DecodeString(req.FaceImageB64)
+		if err != nil {
+			utils.WriteError(w, http.StatusBadRequest, "invalid face image data (base64)")
+			return
+		}
+
+		// EXTRACT EMBEDDING FIRST
+		vec, err := s.aiClient.ExtractEmbedding(imgData)
+		if err != nil || len(vec) == 0 {
+			fmt.Printf("Register: AI face extraction failed: %v\n", err)
+			utils.WriteError(w, http.StatusBadRequest, "Khuôn mặt không hợp lệ hoặc không rõ nét. Vui lòng chụp lại.")
+			return
+		}
+		faceVector = vec
+
+		// ONLY IF AI SUCCEEDS, UPLOAD TO S3
+		if s.s3Service != nil && finalAvatarUrl == "" {
+			s3Key := fmt.Sprintf("avatars/%s.jpg", utils.UUIDToString(citizen.ID))
+			key, uploadErr := s.s3Service.UploadImage(r.Context(), s3Key, imgData)
+			if uploadErr == nil {
+				finalAvatarUrl = key
+			} else {
+				fmt.Printf("Register: S3 upload failed: %v\n", uploadErr)
+			}
+		}
+	} else {
+		// If no image provided, use existing face vector if any
+		faceVector = req.FaceVector
+	}
+
+	// 4. Update Citizen Basic Profile
 	updatedCitizen, err := s.store.UpdateCitizen(r.Context(), sqlc.UpdateCitizenParams{
-		ID:          citizen.ID,
-		FullName:    req.FullName,
-		Phone:       pgtype.Text{String: req.Phone, Valid: req.Phone != ""},
-		AvatarUrl:   pgtype.Text{String: req.AvatarUrl, Valid: req.AvatarUrl != ""},
-		DateOfBirth: dob,
-		Gender:      pgtype.Text{String: req.Gender, Valid: req.Gender != ""},
-		Address:     pgtype.Text{String: req.Address, Valid: req.Address != ""},
-		CccdNumber:  pgtype.Text{String: req.CccdNumber, Valid: req.CccdNumber != ""},
-		IsProfileUpdated: true,
-		IsVerified:       req.CccdNumber != "",
+		ID:                  citizen.ID,
+		FullName:            req.FullName,
+		Phone:               pgtype.Text{String: req.Phone, Valid: req.Phone != ""},
+		AvatarUrl:           pgtype.Text{String: finalAvatarUrl, Valid: finalAvatarUrl != ""},
+		DateOfBirth:         dob,
+		Gender:              pgtype.Text{String: req.Gender, Valid: req.Gender != ""},
+		Address:             pgtype.Text{String: req.Address, Valid: req.Address != ""},
+		CccdNumber:          pgtype.Text{String: req.CccdNumber, Valid: req.CccdNumber != ""},
+		IsProfileUpdated:    true,
+		IsVerified:          req.CccdNumber != "" || len(faceVector) > 0,
 		FirstDeclareProfile: true,
 		ConsentRegulation:   req.ConsentRegulation || citizen.ConsentRegulation,
 	})
@@ -188,20 +232,7 @@ func (s *CitizenServer) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle face embedding (either direct vector or image-to-vector)
-	faceVector := req.FaceVector
-	if req.FaceImageB64 != "" && s.aiClient != nil {
-		imgData, err := base64.StdEncoding.DecodeString(req.FaceImageB64)
-		if err == nil {
-			vec, err := s.aiClient.ExtractEmbedding(imgData)
-			if err == nil {
-				faceVector = vec
-			} else {
-				fmt.Printf("AI extraction failed: %v\n", err)
-			}
-		}
-	}
-
+	// 5. Save Face Embedding
 	if len(faceVector) > 0 {
 		vec := pgvector.NewVector(faceVector)
 		_ = s.store.UpdateCitizenFaceEmbedding(r.Context(), sqlc.UpdateCitizenFaceEmbeddingParams{
@@ -228,7 +259,7 @@ func (s *CitizenServer) Register(w http.ResponseWriter, r *http.Request) {
 	})
 
 	utils.WriteJSON(w, http.StatusOK, api.RegisterCitizenResponse{
-		Profile: mapCitizenToProfile(updatedCitizen),
+		Profile: mapCitizenToProfile(r.Context(), updatedCitizen, s.s3Service),
 	})
 }
 
@@ -297,24 +328,74 @@ func (s *CitizenServer) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if cccd == "" {
 		cccd = citizen.CccdNumber.String
 	}
+	avatarUrl := req.AvatarUrl
+	if avatarUrl == "" {
+		avatarUrl = citizen.AvatarUrl.String
+	}
 
+	// Handle S3 Image Upload & AI Face Validation (Enforcement)
+	var faceVector []float32
+	if req.FaceImageB64 != "" {
+		imgData, err := base64.StdEncoding.DecodeString(req.FaceImageB64)
+		if err != nil {
+			utils.WriteError(w, http.StatusBadRequest, "invalid image data")
+			return
+		}
+
+		// 1. EXTRACT EMBEDDING FIRST (Gatekeeper)
+		if s.aiClient == nil {
+			utils.WriteError(w, http.StatusServiceUnavailable, "AI service not configured")
+			return
+		}
+
+		vec, aiErr := s.aiClient.ExtractEmbedding(imgData)
+		if aiErr != nil || len(vec) == 0 {
+			fmt.Printf("UpdateProfile: AI face extraction failed: %v\n", aiErr)
+			utils.WriteError(w, http.StatusBadRequest, "Khuôn mặt không hợp lệ. Vui lòng sử dụng ảnh khác rõ nét hơn.")
+			return
+		}
+		faceVector = vec
+		citizen.IsVerified = true
+
+		// 2. ONLY IF AI SUCCEEDS, UPLOAD TO S3
+		if s.s3Service != nil {
+			s3Key := fmt.Sprintf("avatars/%s.jpg", utils.UUIDToString(citizen.ID))
+			key, uploadErr := s.s3Service.UploadImage(ctx, s3Key, imgData)
+			if uploadErr == nil {
+				avatarUrl = key // Store the S3 Key as the AvatarUrl
+			} else {
+				fmt.Printf("UpdateProfile: S3 upload failed: %v\n", uploadErr)
+			}
+		}
+	}
+
+	// 3. Update Database
 	updatedCitizen, err := s.store.UpdateCitizen(ctx, sqlc.UpdateCitizenParams{
-		ID:          citizen.ID,
-		FullName:    fullName,
-		Phone:       pgtype.Text{String: phone, Valid: phone != ""},
-		AvatarUrl:   pgtype.Text{String: req.AvatarUrl, Valid: req.AvatarUrl != ""},
-		DateOfBirth: dob,
-		Gender:      pgtype.Text{String: gender, Valid: gender != ""},
-		Address:     pgtype.Text{String: address, Valid: address != ""},
-		CccdNumber:  pgtype.Text{String: cccd, Valid: cccd != ""},
-		IsProfileUpdated: true,
-		IsVerified:       cccd != "" || citizen.IsVerified,
+		ID:                  citizen.ID,
+		FullName:            fullName,
+		Phone:               pgtype.Text{String: phone, Valid: phone != ""},
+		AvatarUrl:           pgtype.Text{String: avatarUrl, Valid: avatarUrl != ""},
+		DateOfBirth:         dob,
+		Gender:              pgtype.Text{String: gender, Valid: gender != ""},
+		Address:             pgtype.Text{String: address, Valid: address != ""},
+		CccdNumber:          pgtype.Text{String: cccd, Valid: cccd != ""},
+		IsProfileUpdated:    true,
+		IsVerified:          cccd != "" || citizen.IsVerified,
 		FirstDeclareProfile: req.FirstDeclareProfile || citizen.FirstDeclareProfile,
 		ConsentRegulation:   req.ConsentRegulation || citizen.ConsentRegulation,
 	})
 	if err != nil {
-		utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update citizen: %v", err))
+		utils.WriteError(w, http.StatusInternalServerError, "failed to update profile")
 		return
+	}
+
+	// 4. Save Vector if extracted
+	if len(faceVector) > 0 {
+		pgVec := pgvector.NewVector(faceVector)
+		_ = s.store.UpdateCitizenFaceEmbedding(ctx, sqlc.UpdateCitizenFaceEmbeddingParams{
+			ID:            citizen.ID,
+			FaceEmbedding: &pgVec,
+		})
 	}
 
 	// 2. Update Emergency Contacts
@@ -328,7 +409,7 @@ func (s *CitizenServer) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 			utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update emergency contacts: %v", err))
 			return
 		}
-		// Re-fetch to get updated contacts in response if needed, 
+		// Re-fetch to get updated contacts in response if needed,
 		// but we'll just map from request for now or rely on the final object.
 		updatedCitizen.EmergencyContacts = contactsJSON
 	}
@@ -372,7 +453,7 @@ func (s *CitizenServer) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.WriteJSON(w, http.StatusOK, api.UpdateProfileResponse{
-		Profile:       mapCitizenToProfile(updatedCitizen),
+		Profile:       mapCitizenToProfile(ctx, updatedCitizen, s.s3Service),
 		MedicalRecord: mapMedicalRecord(finalMed),
 	})
 }
@@ -441,7 +522,7 @@ func (s *CitizenServer) GetProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.WriteJSON(w, http.StatusOK, api.RegisterCitizenResponse{
-		Profile: mapCitizenToProfile(citizen),
+		Profile: mapCitizenToProfile(r.Context(), citizen, s.s3Service),
 	})
 }
 
@@ -506,7 +587,7 @@ func (s *CitizenServer) VerifyIdentity(w http.ResponseWriter, r *http.Request) {
 	})
 
 	utils.WriteJSON(w, http.StatusOK, api.VerifyIdentityResponse{
-		Profile:           mapCitizenToProfile(citizen),
+		Profile:           mapCitizenToProfile(r.Context(), citizen, s.s3Service),
 		MedicalRecord:     mapMedicalRecord(med),
 		EmergencyContacts: mapEmergencyContacts(citizen.EmergencyContacts),
 	})
@@ -551,6 +632,20 @@ func (s *CitizenServer) SearchByFace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bestMatch := hits[0]
+
+	// Enforce similarity threshold
+	distance, ok := bestMatch.Distance.(float64)
+	if !ok {
+		// Fallback for different driver types if needed, but usually it's float64
+		fmt.Printf("SearchByFace: Could not cast distance %v to float64\n", bestMatch.Distance)
+	}
+
+	if ok && distance > 0.35 {
+		fmt.Printf("SearchByFace: Best match found but distance (%.4f) exceeds threshold (0.4). Denying match.\n", distance)
+		utils.WriteError(w, http.StatusNotFound, "Không tìm thấy nạn nhân khớp với khuôn mặt này.")
+		return
+	}
+
 	citizen, _ := s.store.GetCitizen(r.Context(), bestMatch.ID)
 	med, _ := s.store.GetMedicalRecord(r.Context(), bestMatch.ID)
 
@@ -561,7 +656,7 @@ func (s *CitizenServer) SearchByFace(w http.ResponseWriter, r *http.Request) {
 	})
 
 	utils.WriteJSON(w, http.StatusOK, api.SearchByFaceResponse{
-		Profile:           mapCitizenToProfile(citizen),
+		Profile:           mapCitizenToProfile(r.Context(), citizen, s.s3Service),
 		MedicalRecord:     mapMedicalRecord(med),
 		EmergencyContacts: mapEmergencyContacts(citizen.EmergencyContacts),
 	})

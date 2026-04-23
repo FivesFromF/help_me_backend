@@ -26,7 +26,7 @@ class Detection:
         caffemodel = caffemodel_path
         deploy = deploy_path
         self.detector = cv2.dnn.readNetFromCaffe(deploy, caffemodel)
-        self.detector_confidence = 0.6
+        self.detector_confidence = 0.9
 
     def get_bbox(self, img):
         height, width = img.shape[0], img.shape[1]

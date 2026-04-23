@@ -11,9 +11,11 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/fivesfromf/helpme/internal/ai"
 	"github.com/fivesfromf/helpme/internal/repository"
 	"github.com/fivesfromf/helpme/internal/services"
+	"github.com/fivesfromf/helpme/internal/utils"
 )
 
 func main() {
@@ -61,6 +63,15 @@ func main() {
 		os.Exit(1)
 	}
 	cognitoClient := cognitoidentityprovider.NewFromConfig(cfg)
+	s3Client := s3.NewFromConfig(cfg)
+
+	// S3 Configuration
+	s3Bucket := os.Getenv("AWS_S3_BUCKET")
+	if s3Bucket == "" {
+		fmt.Println("AWS_S3_BUCKET must be set")
+		os.Exit(1)
+	}
+	s3Service := utils.NewS3Service(s3Client, s3Bucket)
 
 	// System Secret for NFC/QR Hashing
 	systemSecret := os.Getenv("SYSTEM_SECRET")
@@ -77,7 +88,7 @@ func main() {
 	aiClient := ai.NewClient(aiServerURL)
 
 	// Initialize Servers
-	citizenServer := services.NewCitizenServer(store, cloudRepo, aiClient, cognitoClient, userPoolID, systemSecret)
+	citizenServer := services.NewCitizenServer(store, cloudRepo, aiClient, cognitoClient, userPoolID, systemSecret, s3Service)
 	healthcareServer := services.NewHealthcareServer(store, cloudRepo)
 
 	mux := http.NewServeMux()

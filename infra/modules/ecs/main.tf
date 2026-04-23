@@ -144,6 +144,15 @@ resource "aws_iam_policy" "ecs_cloud_access" {
         ]
         Effect   = "Allow"
         Resource = "*" # Restrict to User Pool ARN if possible, but '*' is common for multi-resource Cognito tasks
+      },
+      {
+        Action   = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject"
+        ]
+        Effect   = "Allow"
+        Resource = ["${var.avatars_bucket_arn}", "${var.avatars_bucket_arn}/*"]
       }
     ]
   })
@@ -282,7 +291,8 @@ resource "aws_ecs_task_definition" "write" {
       { name = "SYSTEM_SECRET", value = var.system_secret },
       { name = "COGNITO_USER_POOL_ID", value = var.user_pool_id },
       { name = "COGNITO_CLIENT_ID", value = var.client_id },
-      { name = "AUDIT_LOGS_TABLE", value = var.audit_table_name }
+      { name = "AUDIT_LOGS_TABLE", value = var.audit_table_name },
+      { name = "AWS_S3_BUCKET", value = var.avatars_bucket_name }
     ]
   }])
 
@@ -324,7 +334,8 @@ resource "aws_ecs_task_definition" "read" {
       { name = "SYSTEM_SECRET", value = var.system_secret },
       { name = "COGNITO_USER_POOL_ID", value = var.user_pool_id },
       { name = "COGNITO_CLIENT_ID", value = var.client_id },
-      { name = "AUDIT_LOGS_TABLE", value = var.audit_table_name }
+      { name = "AUDIT_LOGS_TABLE", value = var.audit_table_name },
+      { name = "AWS_S3_BUCKET", value = var.avatars_bucket_name }
     ]
   }])
 
@@ -407,6 +418,9 @@ variable "system_secret" {}
 variable "user_pool_id" {}
 variable "client_id" {}
 variable "audit_table_name" {}
+
+variable "avatars_bucket_name" {}
+variable "avatars_bucket_arn" {}
 
 output "write_service_endpoint" {
   value = aws_lb.main.dns_name

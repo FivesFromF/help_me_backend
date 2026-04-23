@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -25,15 +26,17 @@ type AuthServer struct {
 	appClientID   string
 	cognitoDomain string
 	redirectURI   string
+	s3Service     *utils.S3Service
 }
 
-func NewAuthServer(store *repository.Store, cognitoClient *cognitoidentityprovider.Client) *AuthServer {
+func NewAuthServer(store *repository.Store, cognitoClient *cognitoidentityprovider.Client, s3Service *utils.S3Service) *AuthServer {
 	return &AuthServer{
 		store:         store,
 		cognitoClient: cognitoClient,
 		appClientID:   os.Getenv("COGNITO_CLIENT_ID"),
 		cognitoDomain: os.Getenv("COGNITO_DOMAIN"),
 		redirectURI:   os.Getenv("COGNITO_REDIRECT_URI"),
+		s3Service:     s3Service,
 	}
 }
 
@@ -153,7 +156,7 @@ func (s *AuthServer) handleCitizenSignIn(w http.ResponseWriter, r *http.Request,
 	utils.WriteJSON(w, http.StatusOK, api.SignInResponse{
 		AccessToken: accessToken,
 		Role:        "citizen",
-		Citizen:     mapCitizenToProfile(citizen),
+		Citizen:     mapCitizenToProfile(ctx, citizen, s.s3Service),
 	})
 }
 
@@ -167,7 +170,7 @@ func (s *AuthServer) handleStaffSignIn(w http.ResponseWriter, r *http.Request, a
 	utils.WriteJSON(w, http.StatusOK, api.SignInResponse{
 		AccessToken: accessToken,
 		Role:        "staff",
-		Staff:       mapStaffToProfile(staff),
+		Staff:       mapStaffToProfile(r.Context(), staff, s.s3Service),
 	})
 }
 
@@ -204,7 +207,7 @@ func (s *AuthServer) handleAdminSignIn(w http.ResponseWriter, r *http.Request, a
 	utils.WriteJSON(w, http.StatusOK, api.SignInResponse{
 		AccessToken: accessToken,
 		Role:        "admin",
-		Admin:       mapAdminToProfile(admin),
+		Admin:       mapAdminToProfile(r.Context(), admin, s.s3Service),
 	})
 }
 
@@ -230,14 +233,19 @@ func extractPrimaryRole(claims jwt.MapClaims) string {
 
 // --------- Mappers ---------
 
-func mapCitizenToProfile(c sqlc.Citizens) *api.CitizenProfile {
+func mapCitizenToProfile(ctx context.Context, c sqlc.Citizens, s3Service *utils.S3Service) *api.CitizenProfile {
+	avatarUrl := c.AvatarUrl.String
+	if s3Service != nil {
+		avatarUrl = s3Service.ResolveAvatarURL(ctx, avatarUrl)
+	}
+
 	p := &api.CitizenProfile{
 		ID:                  utils.UUIDToString(c.ID),
 		CognitoID:           c.CognitoID,
 		Email:               c.Email,
 		FullName:            c.FullName,
 		Phone:               c.Phone.String,
-		AvatarUrl:           c.AvatarUrl.String,
+		AvatarUrl:           avatarUrl,
 		IsProfileUpdated:    c.IsProfileUpdated,
 		IsVerified:          c.IsVerified,
 		FirstDeclareProfile: c.FirstDeclareProfile,
@@ -256,14 +264,19 @@ func mapCitizenToProfile(c sqlc.Citizens) *api.CitizenProfile {
 	return p
 }
 
-func mapStaffToProfile(s sqlc.Staff) *api.StaffProfile {
+func mapStaffToProfile(ctx context.Context, s sqlc.Staff, s3Service *utils.S3Service) *api.StaffProfile {
+	avatarUrl := s.AvatarUrl.String
+	if s3Service != nil {
+		avatarUrl = s3Service.ResolveAvatarURL(ctx, avatarUrl)
+	}
+
 	return &api.StaffProfile{
 		ID:           utils.UUIDToString(s.ID),
 		CognitoID:    s.CognitoID,
 		Email:        s.Email,
 		FullName:     s.FullName,
 		Phone:        s.Phone.String,
-		AvatarUrl:    s.AvatarUrl.String,
+		AvatarUrl:    avatarUrl,
 		HospitalName: s.HospitalName,
 		Department:   s.Department.String,
 		Status:       s.Status,
@@ -271,13 +284,18 @@ func mapStaffToProfile(s sqlc.Staff) *api.StaffProfile {
 	}
 }
 
-func mapAdminToProfile(a sqlc.Admins) *api.AdminProfile {
+func mapAdminToProfile(ctx context.Context, a sqlc.Admins, s3Service *utils.S3Service) *api.AdminProfile {
+	avatarUrl := a.AvatarUrl.String
+	if s3Service != nil {
+		avatarUrl = s3Service.ResolveAvatarURL(ctx, avatarUrl)
+	}
+
 	return &api.AdminProfile{
 		ID:        utils.UUIDToString(a.ID),
 		CognitoID: a.CognitoID,
 		Email:     a.Email,
 		FullName:  a.FullName,
-		AvatarUrl: a.AvatarUrl.String,
+		AvatarUrl: avatarUrl,
 		CreatedAt: a.CreatedAt.Time,
 	}
 }
