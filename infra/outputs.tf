@@ -3,16 +3,6 @@ output "api_endpoint" {
   value       = module.apigateway.api_endpoint
 }
 
-output "write_service_endpoint" {
-  description = "The endpoint for the Write service"
-  value       = module.ecs.write_service_endpoint
-}
-
-output "read_service_endpoint" {
-  description = "The endpoint for the Read service"
-  value       = module.ecs.read_service_endpoint
-}
-
 output "cognito_user_pool_id" {
   description = "The ID of the Cognito User Pool"
   value       = module.auth.user_pool_id

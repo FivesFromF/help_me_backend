@@ -35,37 +35,9 @@ resource "aws_ecr_lifecycle_policy" "app" {
 
 # --- Security Groups ---
 
-resource "aws_security_group" "alb" {
-  name        = "${var.project_name}-alb-sg"
-  description = "Security group for ALB"
-  vpc_id      = var.vpc_id
+# --- Security Groups ---
 
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 8081
-    to_port     = 8082
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name    = "${var.project_name}-alb-sg"
-    Project = "HelpMe"
-  }
-}
+# ALB Security Group removed as ALB is being deleted
 
 resource "aws_security_group" "app_tasks" {
   name        = "${var.project_name}-ecs-app-sg"
@@ -76,7 +48,7 @@ resource "aws_security_group" "app_tasks" {
     from_port       = 8080
     to_port         = 8080
     protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
+    security_groups = [var.lambda_proxy_sg_id]
   }
 
   egress {
@@ -92,7 +64,8 @@ resource "aws_security_group" "app_tasks" {
   }
 }
 
-# --- IAM Roles for ECS Express Mode ---
+# --- IAM Roles for ECS ---
+# ... (keeping existing roles) ...
 
 resource "aws_iam_role" "ecs_execution_role" {
   name = "${var.project_name}-ecs-execution-role-express"
@@ -124,7 +97,6 @@ resource "aws_iam_policy" "ecs_cloud_access" {
       {
         Action   = "events:PutEvents"
         Effect   = "Allow"
-        # Grant access to BOTH buses
         Resource = [var.system_bus_arn, var.emergency_bus_arn]
       },
       {
@@ -143,7 +115,7 @@ resource "aws_iam_policy" "ecs_cloud_access" {
           "cognito-idp:AdminAddUserToGroup"
         ]
         Effect   = "Allow"
-        Resource = "*" # Restrict to User Pool ARN if possible, but '*' is common for multi-resource Cognito tasks
+        Resource = "*"
       },
       {
         Action   = [
@@ -167,7 +139,7 @@ resource "aws_iam_role_policy_attachment" "ecs_cloud_access_attach" {
   policy_arn = aws_iam_policy.ecs_cloud_access.arn
 }
 
-# --- ECS Standard Infrastructure ---
+# --- ECS Cluster ---
 
 resource "aws_ecs_cluster" "main" {
   name = "${var.project_name}-cluster"
@@ -177,71 +149,41 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
-# --- Application Load Balancer ---
+# --- Service Discovery Services (Cloud Map) ---
 
-resource "aws_lb" "main" {
-  name               = "${var.project_name}-alb"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
-  subnets            = var.subnet_ids
+resource "aws_service_discovery_service" "write" {
+  name = "write"
 
-  tags = {
-    Project = "HelpMe"
+  dns_config {
+    namespace_id = var.service_discovery_namespace_id
+
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
+
+    routing_policy = "MULTIVALUE"
+  }
+
+  health_check_custom_config {
   }
 }
 
-resource "aws_lb_target_group" "write" {
-  name        = "${var.project_name}-write-tg"
-  port        = 8080
-  protocol    = "HTTP"
-  vpc_id      = var.vpc_id
-  target_type = "ip"
+resource "aws_service_discovery_service" "read" {
+  name = "read"
 
-  health_check {
-    path                = "/health"
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
+  dns_config {
+    namespace_id = var.service_discovery_namespace_id
+
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
+
+    routing_policy = "MULTIVALUE"
   }
-}
 
-resource "aws_lb_target_group" "read" {
-  name        = "${var.project_name}-read-tg"
-  port        = 8080
-  protocol    = "HTTP"
-  vpc_id      = var.vpc_id
-  target_type = "ip"
-
-  health_check {
-    path                = "/health"
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
-  }
-}
-
-resource "aws_lb_listener" "write" {
-  load_balancer_arn = aws_lb.main.arn
-  port              = "8081"
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.write.arn
-  }
-}
-
-resource "aws_lb_listener" "read" {
-  load_balancer_arn = aws_lb.main.arn
-  port              = "8082"
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.read.arn
+  health_check_custom_config {
   }
 }
 
@@ -255,9 +197,8 @@ resource "aws_cloudwatch_log_group" "services" {
   }
 }
 
-# --- ECS Services (Standard Fargate) ---
+# --- Task Definitions ---
 
-# Task Definitions
 resource "aws_ecs_task_definition" "write" {
   family                   = "${var.project_name}-write"
   network_mode             = "awsvpc"
@@ -344,7 +285,8 @@ resource "aws_ecs_task_definition" "read" {
   }
 }
 
-# Services
+# --- ECS Services (Standard Fargate) ---
+
 resource "aws_ecs_service" "write" {
   name            = "${var.project_name}-write-service"
   cluster         = aws_ecs_cluster.main.id
@@ -358,13 +300,9 @@ resource "aws_ecs_service" "write" {
     assign_public_ip = true
   }
 
-  load_balancer {
-    target_group_arn = aws_lb_target_group.write.arn
-    container_name   = "write-app"
-    container_port   = 8080
+  service_registries {
+    registry_arn = aws_service_discovery_service.write.arn
   }
-
-  depends_on = [aws_lb_listener.write]
 
   tags = {
     Project = "HelpMe"
@@ -384,13 +322,9 @@ resource "aws_ecs_service" "read" {
     assign_public_ip = true
   }
 
-  load_balancer {
-    target_group_arn = aws_lb_target_group.read.arn
-    container_name   = "read-app"
-    container_port   = 8080
+  service_registries {
+    registry_arn = aws_service_discovery_service.read.arn
   }
-
-  depends_on = [aws_lb_listener.read]
 
   tags = {
     Project = "HelpMe"
@@ -413,6 +347,8 @@ variable "sessions_table_arn" {}
 variable "db_cluster_endpoint" {}
 variable "db_password" {}
 variable "system_secret" {}
+variable "service_discovery_namespace_id" {}
+variable "lambda_proxy_sg_id" {}
 
 # Cognito & Audit
 variable "user_pool_id" {}
@@ -422,13 +358,7 @@ variable "audit_table_name" {}
 variable "avatars_bucket_name" {}
 variable "avatars_bucket_arn" {}
 
-output "write_service_endpoint" {
-  value = aws_lb.main.dns_name
-}
-
-output "read_service_endpoint" {
-  value = aws_lb.main.dns_name
-}
+# ALB Outputs removed
 
 output "app_tasks_sg_id" {
   value = aws_security_group.app_tasks.id

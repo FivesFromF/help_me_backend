@@ -126,7 +126,6 @@ resource "aws_service_discovery_service" "ai" {
   }
 
   health_check_custom_config {
-    failure_threshold = 1
   }
 }
 
