@@ -23,10 +23,17 @@ resource "aws_apigatewayv2_authorizer" "auth" {
   authorizer_result_ttl_in_seconds  = 0
 }
 
-resource "aws_apigatewayv2_integration" "lambda_proxy" {
+resource "aws_apigatewayv2_integration" "read_service" {
   api_id           = aws_apigatewayv2_api.main.id
   integration_type = "AWS_PROXY"
-  integration_uri  = var.lambda_function_arn
+  integration_uri  = var.read_lambda_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_integration" "write_service" {
+  api_id           = aws_apigatewayv2_api.main.id
+  integration_type = "AWS_PROXY"
+  integration_uri  = var.write_lambda_arn
   payload_format_version = "2.0"
 }
 
@@ -34,8 +41,8 @@ resource "aws_apigatewayv2_integration" "lambda_proxy" {
 
 resource "aws_apigatewayv2_route" "write_route" {
   api_id    = aws_apigatewayv2_api.main.id
-  route_key = "ANY /write-service/{proxy+}"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda_proxy.id}"
+  route_key = "ANY /write/{proxy+}"
+  target    = "integrations/${aws_apigatewayv2_integration.write_service.id}"
   
   authorization_type = "CUSTOM"
   authorizer_id      = aws_apigatewayv2_authorizer.auth.id
@@ -43,15 +50,34 @@ resource "aws_apigatewayv2_route" "write_route" {
 
 resource "aws_apigatewayv2_route" "read_route" {
   api_id    = aws_apigatewayv2_api.main.id
-  route_key = "ANY /read-service/{proxy+}"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda_proxy.id}"
+  route_key = "ANY /read/{proxy+}"
+  target    = "integrations/${aws_apigatewayv2_integration.read_service.id}"
 
   authorization_type = "CUSTOM"
   authorizer_id      = aws_apigatewayv2_authorizer.auth.id
 }
 
+# --- Permissions to allow API Gateway to invoke Lambdas ---
+
+resource "aws_lambda_permission" "apigw_read" {
+  statement_id  = "AllowAPIGatewayInvokeRead"
+  action        = "lambda:InvokeFunction"
+  function_name = var.read_lambda_arn
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
+}
+
+resource "aws_lambda_permission" "apigw_write" {
+  statement_id  = "AllowAPIGatewayInvokeWrite"
+  action        = "lambda:InvokeFunction"
+  function_name = var.write_lambda_arn
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
+}
+
 variable "project_name" {}
-variable "lambda_function_arn" {}
+variable "read_lambda_arn" {}
+variable "write_lambda_arn" {}
 variable "authorizer_uri" {}
 
 output "api_endpoint" {

@@ -22,8 +22,9 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project   = "HelpMe"
-      ManagedBy = "Terraform"
+      Project        = "HelpMe"
+      ProjectTagName = "HelpMe"
+      ManagedBy      = "Terraform"
     }
   }
 }

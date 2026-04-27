@@ -13,15 +13,15 @@ import (
 	"github.com/fivesfromf/helpme/internal/utils"
 )
 
-type EmergencyServer struct {
+type EmergencyService struct {
 	store *repository.Store
 }
 
-func NewEmergencyServer(store *repository.Store) *EmergencyServer {
-	return &EmergencyServer{store: store}
+func NewEmergencyService(store *repository.Store) *EmergencyService {
+	return &EmergencyService{store: store}
 }
 
-func (s *EmergencyServer) ReportEmergency(w http.ResponseWriter, r *http.Request) {
+func (s *EmergencyService) ReportEmergency(w http.ResponseWriter, r *http.Request) {
 	var req api.ReportEmergencyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")

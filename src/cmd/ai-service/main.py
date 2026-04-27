@@ -2,13 +2,28 @@ import os
 import cv2
 import numpy as np
 import torch
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from regconition_original import FaceProcessor
 
-app = FastAPI(title="HelpMe AI Server")
+app = FastAPI(title="HelpMe AI Service")
+
+# --- Security Middleware ---
+AI_SECRET = os.getenv("AI_INTERNAL_SECRET", "changeme")
+
+@app.middleware("http")
+async def verify_secret(request: Request, call_next):
+    # Allow health check without secret
+    if request.url.path == "/health":
+        return await call_next(request)
+        
+    secret = request.headers.get("X-HelpMe-Secret")
+    if secret != AI_SECRET:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=403, content={"detail": "Forbidden: Invalid Secret Key"})
+    
+    return await call_next(request)
 
 # Initialize global processor
-# This will load models into memory immediately on startup
 processor = FaceProcessor()
 
 @app.post("/extract-embedding")
@@ -45,11 +60,11 @@ async def extract_embedding(image: UploadFile = File(...)):
         raise
     except Exception as e:
         # Unexpected server errors should return 500
-        raise HTTPException(status_code=500, detail=f"Internal AI Server Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal AI Service Error: {str(e)}")
 
 @app.get("/health")
 def health():
-    """Health check endpoint for ECS and ALB."""
+    """Health check endpoint for ECS."""
     return {"status": "alive", "device": "cuda" if torch.cuda.is_available() else "cpu"}
 
 if __name__ == "__main__":

@@ -4,10 +4,10 @@ WORKDIR /app
 COPY go.mod ./
 RUN go mod download
 COPY . .
-RUN go build -o read-server ./cmd/read-server/main.go
+RUN go build -o read-service ./cmd/read-service/main.go
 
 FROM alpine:latest
 WORKDIR /root/
-COPY --from=builder /app/read-server .
+COPY --from=builder /app/read-service .
 EXPOSE 8080
-CMD ["./read-server"]
+CMD ["./read-service"]

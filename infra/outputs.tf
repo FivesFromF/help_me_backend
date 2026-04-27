@@ -33,7 +33,7 @@ output "emergency_bus_name" {
   value       = module.eventbridge.emergency_bus_name
 }
 
-output "rds_cluster_endpoint" {
-  description = "The endpoint of the RDS cluster"
-  value       = module.rds.cluster_endpoint
+output "ai_repository_url" {
+  description = "The ECR repository URL for the AI Service"
+  value       = module.ai_service.repository_url
 }

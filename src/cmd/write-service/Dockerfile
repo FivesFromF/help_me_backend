@@ -4,11 +4,11 @@ WORKDIR /app
 COPY go.mod ./
 RUN go mod download
 COPY . .
-RUN go build -o write-server ./cmd/write-server/main.go
+RUN go build -o write-service ./cmd/write-service/main.go
 
 FROM alpine:latest
 WORKDIR /root/
-COPY --from=builder /app/write-server .
+COPY --from=builder /app/write-service .
 COPY api/schema ./api/schema
 EXPOSE 8080
-CMD ["./write-server"]
+CMD ["./write-service"]

@@ -11,6 +11,7 @@ import (
 
 type Client struct {
 	BaseURL    string
+	SecretKey  string
 	HTTPClient *http.Client
 }
 
@@ -20,9 +21,10 @@ type ExtractResponse struct {
 	Embedding []float32 `json:"embedding"`
 }
 
-func NewClient(baseURL string) *Client {
+func NewClient(baseURL, secretKey string) *Client {
 	return &Client{
-		BaseURL: baseURL,
+		BaseURL:   baseURL,
+		SecretKey: secretKey,
 		HTTPClient: &http.Client{
 			Timeout: 15 * time.Second,
 		},
@@ -52,15 +54,16 @@ func (c *Client) ExtractEmbedding(imageBytes []byte) ([]float32, error) {
 	}
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-HelpMe-Secret", c.SecretKey)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to call AI server: %w", err)
+		return nil, fmt.Errorf("failed to call AI service: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("AI server returned status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("AI service returned status: %d", resp.StatusCode)
 	}
 
 	var result ExtractResponse

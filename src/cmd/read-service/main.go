@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"os"
 
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
+	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/awslabs/aws-lambda-go-api-proxy/httpadapter"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
@@ -85,28 +85,29 @@ func main() {
 	if aiServerURL == "" {
 		aiServerURL = "http://ai.helpme.local:8000" // Default internal DNS
 	}
-	aiClient := ai.NewClient(aiServerURL)
+	aiInternalSecret := os.Getenv("AI_INTERNAL_SECRET")
+	aiClient := ai.NewClient(aiServerURL, aiInternalSecret)
 
 	// Initialize Servers
-	citizenServer := services.NewCitizenServer(store, cloudRepo, aiClient, cognitoClient, userPoolID, systemSecret, s3Service)
-	healthcareServer := services.NewHealthcareServer(store, cloudRepo)
+	CitizenService := services.NewCitizenService(store, cloudRepo, aiClient, cognitoClient, userPoolID, systemSecret, s3Service)
+	HealthcareService := services.NewHealthcareService(store, cloudRepo)
 
 	mux := http.NewServeMux()
 
 	// Register Read operations
-	mux.HandleFunc("GET /user/profile", citizenServer.GetProfile)
-	mux.HandleFunc("GET /user/medical-record", citizenServer.GetMedicalRecord)
-	mux.HandleFunc("POST /user/verify", citizenServer.VerifyIdentity)
-	mux.HandleFunc("POST /user/search", citizenServer.SearchByFace)
-	mux.HandleFunc("GET /user/nfc", citizenServer.ListMyNFCTags)
-	mux.HandleFunc("GET /user/qr", citizenServer.ListMyQRCodes)
+	mux.HandleFunc("GET /user/profile", CitizenService.GetProfile)
+	mux.HandleFunc("GET /user/medical-record", CitizenService.GetMedicalRecord)
+	mux.HandleFunc("POST /user/verify", CitizenService.VerifyIdentity)
+	mux.HandleFunc("POST /user/search", CitizenService.SearchByFace)
+	mux.HandleFunc("GET /user/nfc", CitizenService.ListMyNFCTags)
+	mux.HandleFunc("GET /user/qr", CitizenService.ListMyQRCodes)
 
 	// Since getting emergency history is not implemented, we omit or keep a placeholder
-	// mux.HandleFunc("POST /emergency/history", emergencyServer.GetEmergencyHistory)
+	// mux.HandleFunc("POST /emergency/history", EmergencyService.GetEmergencyHistory)
 
-	mux.HandleFunc("POST /healthcare/data", healthcareServer.GetData)
+	mux.HandleFunc("POST /healthcare/data", HealthcareService.GetData)
 	// LogAccess is handled natively inside GetData but exists as an endpoint
-	// mux.HandleFunc("POST /healthcare/log", healthcareServer.LogAccess)
+	// mux.HandleFunc("POST /healthcare/log", HealthcareService.LogAccess)
 	
 	// Health Check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -114,9 +115,9 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
-	fmt.Println("HelpMe READ Service (Refined + Cloud) starting on :8080...")
-	http.ListenAndServe(
-		":8080",
-		h2c.NewHandler(mux, &http2.Server{}),
-	)
+	// --- Execution Logic ---
+	// Running exclusively as AWS Lambda
+	fmt.Println("HelpMe Read Service starting as AWS Lambda...")
+	adapter := httpadapter.New(mux)
+	lambda.Start(adapter.ProxyWithContext)
 }

@@ -12,20 +12,20 @@ import (
 	"github.com/fivesfromf/helpme/internal/utils"
 )
 
-type HealthcareServer struct {
+type HealthcareService struct {
 	store           *repository.Store
 	timestreamStore *repository.TimestreamStore // Deprecated
 	cloudRepo       *repository.CloudRepository
 }
 
-func NewHealthcareServer(store *repository.Store, cloudRepo *repository.CloudRepository) *HealthcareServer {
-	return &HealthcareServer{
+func NewHealthcareService(store *repository.Store, cloudRepo *repository.CloudRepository) *HealthcareService {
+	return &HealthcareService{
 		store:     store,
 		cloudRepo: cloudRepo,
 	}
 }
 
-func (s *HealthcareServer) GetData(w http.ResponseWriter, r *http.Request) {
+func (s *HealthcareService) GetData(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CitizenID string `json:"citizenId"`
 		StaffID   string `json:"staffId"`

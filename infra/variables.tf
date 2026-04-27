@@ -51,9 +51,15 @@ variable "smtp_from" {
   type        = string
 }
 
-# --- Database & Secrets ---
-variable "db_password" {
-  description = "Password for RDS PostgreSQL"
+# --- Supabase & Secrets ---
+variable "supabase_db_url" {
+  description = "Connection string for Supabase PostgreSQL"
+  type        = string
+  sensitive   = true
+}
+
+variable "ai_internal_secret" {
+  description = "Secret key for communication between Lambda and AI Service"
   type        = string
   sensitive   = true
 }
@@ -64,13 +70,22 @@ variable "system_secret" {
   sensitive   = true
 }
 
-# --- Container Images ---
-variable "read_container_image" {
-  description = "ECR image URL for the Read service"
+# --- Deprecated (RDS/ECS) ---
+variable "db_password" {
+  description = "Password for RDS PostgreSQL (Deprecated)"
   type        = string
+  sensitive   = true
+  default     = "DEPRECATED"
+}
+
+variable "read_container_image" {
+  description = "ECR image URL for the Read service (Deprecated)"
+  type        = string
+  default     = "DEPRECATED"
 }
 
 variable "write_container_image" {
-  description = "ECR image URL for the Write service"
+  description = "ECR image URL for the Write service (Deprecated)"
   type        = string
+  default     = "DEPRECATED"
 }

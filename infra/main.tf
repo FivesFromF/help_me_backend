@@ -15,28 +15,11 @@ module "dynamodb" {
   project_name = var.project_name
 }
 
-module "rds" {
-  source          = "./modules/rds"
-  project_name    = var.project_name
-  vpc_id          = module.vpc.vpc_id
-  subnet_ids      = module.vpc.private_subnets
-  db_password     = var.db_password
-  app_tasks_sg_id = module.ecs.app_tasks_sg_id
-  bastion_sg_id   = module.bastion.bastion_sg_id
-}
-
-module "bastion" {
-  source       = "./modules/bastion"
-  project_name = var.project_name
-  vpc_id       = module.vpc.vpc_id
-  subnet_id    = module.vpc.public_subnets[0] # Use the first public subnet
-}
-
 module "eventbridge" {
   source                         = "./modules/eventbridge"
   project_name                   = var.project_name
   audit_lambda_arn               = module.lambda.audit_lambda_arn
-  notification_lambda_arn        = module.lambda.notification_lambda_arn
+  notification_lambda_arn        = module.lambda.notification_lambda_arn # Fixed reference
   grant_permission_lambda_arn    = module.lambda.grant_permission_lambda_arn
 }
 
@@ -51,11 +34,18 @@ module "lambda" {
   smtp_pass = var.smtp_pass
   smtp_from = var.smtp_from
 
-  # Database URLs (Constructing for PostgreSQL)
-  database_url = "postgres://adminuser:${var.db_password}@${module.rds.cluster_endpoint}:5432/helpme"
+  # Database URL (Supabase)
+  database_url = var.supabase_db_url
   
+  # AI Service & Secrets
+  ai_service_url     = "http://${module.ai_service.repository_url}:8000" # Placeholder
+  ai_internal_secret = var.ai_internal_secret
+  system_secret      = var.system_secret
+
   # Cognito Reference
   user_pool_arn = module.auth.user_pool_arn
+  user_pool_id  = module.auth.user_pool_id
+  client_id     = module.auth.client_id
 
   # DynamoDB References
   sessions_table_name = module.dynamodb.sessions_table_name
@@ -63,10 +53,20 @@ module "lambda" {
   audit_table_name    = module.dynamodb.audit_table_name
   audit_table_arn     = module.dynamodb.audit_table_arn
 
+  # S3 Reference
+  avatars_bucket_name = module.s3.bucket_name
+  avatars_bucket_arn  = module.s3.bucket_arn
+
   # EventBridge Rule ARNs
   audit_system_rule_arn    = module.eventbridge.audit_system_rule_arn
   audit_emergency_rule_arn = module.eventbridge.audit_emergency_rule_arn
   identification_rule_arn  = module.eventbridge.identification_rule_arn
+  
+  # Bus Info
+  system_bus_name    = module.eventbridge.system_bus_name
+  system_bus_arn     = module.eventbridge.system_bus_arn
+  emergency_bus_name = module.eventbridge.emergency_bus_name
+  emergency_bus_arn  = module.eventbridge.emergency_bus_arn
 }
 
 module "auth" {
@@ -95,6 +95,7 @@ module "ai_service" {
   execution_role_arn             = module.ecs.execution_role_arn
   cluster_id                     = module.ecs.cluster_id
   service_discovery_namespace_id = module.vpc.service_discovery_namespace_id
+  ai_internal_secret             = var.ai_internal_secret
 }
 
 module "authorizer" {
@@ -110,7 +111,7 @@ module "ecs" {
   source                = "./modules/ecs"
   project_name          = var.project_name
   vpc_id                = module.vpc.vpc_id
-  subnet_ids            = module.vpc.public_subnets # Still using public subnets for internet access without NAT
+  subnet_ids            = module.vpc.public_subnets
   
   # Bus Info
   system_bus_name       = module.eventbridge.system_bus_name
@@ -118,13 +119,13 @@ module "ecs" {
   emergency_bus_name    = module.eventbridge.emergency_bus_name
   emergency_bus_arn     = module.eventbridge.emergency_bus_arn
 
-  # Images
-  read_container_image  = var.read_container_image
-  write_container_image = var.write_container_image
+  # Images (Deprecated but required by module variables for now)
+  read_container_image  = "DEPRECATED"
+  write_container_image = "DEPRECATED"
 
   # DB & Secret
-  db_cluster_endpoint   = module.rds.cluster_endpoint
-  db_password           = var.db_password
+  db_cluster_endpoint   = "DEPRECATED"
+  db_password           = "DEPRECATED"
   system_secret         = var.system_secret
 
   # DynamoDB Sessions
@@ -142,21 +143,14 @@ module "ecs" {
 
   # Budget Architecture additions
   service_discovery_namespace_id = module.vpc.service_discovery_namespace_id
-  lambda_proxy_sg_id             = module.lambda_proxy.lambda_sg_id
-}
-
-module "lambda_proxy" {
-  source            = "./modules/lambda_proxy"
-  project_name      = var.project_name
-  vpc_id            = module.vpc.vpc_id
-  subnet_ids        = module.vpc.private_subnets
-  api_execution_arn = module.apigateway.execution_arn
+  lambda_proxy_sg_id             = "DEPRECATED" # Placeholder
 }
 
 module "apigateway" {
   source                 = "./modules/apigateway"
   project_name           = var.project_name
-  lambda_function_arn    = module.lambda_proxy.lambda_function_arn
+  read_lambda_arn        = module.lambda.read_service_arn
+  write_lambda_arn       = module.lambda.write_service_arn
   authorizer_uri         = module.authorizer.authorizer_uri
 }
 
@@ -168,14 +162,4 @@ variable "random_suffix" {
 
 
 
-output "bastion_instance_id" {
-  value = module.bastion.instance_id
-}
 
-output "rds_endpoint" {
-  value = module.rds.cluster_endpoint
-}
-
-output "ai_repository_url" {
-  value = module.ai_service.repository_url
-}

@@ -20,7 +20,7 @@ import (
 	"github.com/fivesfromf/helpme/internal/utils"
 )
 
-type AuthServer struct {
+type AuthService struct {
 	store         *repository.Store
 	cognitoClient *cognitoidentityprovider.Client
 	appClientID   string
@@ -29,8 +29,8 @@ type AuthServer struct {
 	s3Service     *utils.S3Service
 }
 
-func NewAuthServer(store *repository.Store, cognitoClient *cognitoidentityprovider.Client, s3Service *utils.S3Service) *AuthServer {
-	return &AuthServer{
+func NewAuthService(store *repository.Store, cognitoClient *cognitoidentityprovider.Client, s3Service *utils.S3Service) *AuthService {
+	return &AuthService{
 		store:         store,
 		cognitoClient: cognitoClient,
 		appClientID:   os.Getenv("COGNITO_CLIENT_ID"),
@@ -43,7 +43,7 @@ func NewAuthServer(store *repository.Store, cognitoClient *cognitoidentityprovid
 // SignIn handles Google token exchange.
 // It reads the Cognito Group from the JWT to determine role,
 // then fetches or creates the correct record in the matching table.
-func (s *AuthServer) SignIn(w http.ResponseWriter, r *http.Request) {
+func (s *AuthService) SignIn(w http.ResponseWriter, r *http.Request) {
 	var req api.SignInRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, http.StatusBadRequest, "invalid payload")
@@ -104,7 +104,7 @@ func (s *AuthServer) SignIn(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *AuthServer) handleCitizenSignIn(w http.ResponseWriter, r *http.Request, accessToken, cognitoID, email, name string) {
+func (s *AuthService) handleCitizenSignIn(w http.ResponseWriter, r *http.Request, accessToken, cognitoID, email, name string) {
 	ctx := r.Context()
 
 	// 1. Sync with local Database - Self Healing
@@ -160,7 +160,7 @@ func (s *AuthServer) handleCitizenSignIn(w http.ResponseWriter, r *http.Request,
 	})
 }
 
-func (s *AuthServer) handleStaffSignIn(w http.ResponseWriter, r *http.Request, accessToken, cognitoID, email, name string) {
+func (s *AuthService) handleStaffSignIn(w http.ResponseWriter, r *http.Request, accessToken, cognitoID, email, name string) {
 	staff, err := s.store.GetStaffByCognitoID(r.Context(), cognitoID)
 	if err != nil {
 		utils.WriteError(w, http.StatusNotFound, "staff record not found — contact admin")
@@ -174,7 +174,7 @@ func (s *AuthServer) handleStaffSignIn(w http.ResponseWriter, r *http.Request, a
 	})
 }
 
-func (s *AuthServer) handleAdminSignIn(w http.ResponseWriter, r *http.Request, accessToken, cognitoID, email, name string) {
+func (s *AuthService) handleAdminSignIn(w http.ResponseWriter, r *http.Request, accessToken, cognitoID, email, name string) {
 	admin, err := s.store.GetAdminByCognitoID(r.Context(), cognitoID)
 	if err != nil {
 		// Fallback to email

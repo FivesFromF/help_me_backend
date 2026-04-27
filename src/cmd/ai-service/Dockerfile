@@ -12,11 +12,11 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy requirements first to leverage Docker cache
-COPY cmd/ai-server/requirements.txt .
+COPY cmd/ai-service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all source code and model files from the cmd/ai-server directory
-COPY cmd/ai-server/ .
+# Copy all source code and model files from the cmd/ai-service directory
+COPY cmd/ai-service/ .
 
 # Expose the FastAPI port
 EXPOSE 8000

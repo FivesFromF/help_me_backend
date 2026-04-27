@@ -19,7 +19,7 @@ import (
 	"github.com/fivesfromf/helpme/internal/utils"
 )
 
-type AdminServer struct {
+type AdminService struct {
 	store         *repository.Store
 	cognitoClient *cognitoidentityprovider.Client
 	dbClient      *dynamodb.Client
@@ -28,8 +28,8 @@ type AdminServer struct {
 	s3Service     *utils.S3Service
 }
 
-func NewAdminServer(store *repository.Store, cognitoClient *cognitoidentityprovider.Client, dbClient *dynamodb.Client, auditTable, userPoolID string, s3Service *utils.S3Service) *AdminServer {
-	return &AdminServer{
+func NewAdminService(store *repository.Store, cognitoClient *cognitoidentityprovider.Client, dbClient *dynamodb.Client, auditTable, userPoolID string, s3Service *utils.S3Service) *AdminService {
+	return &AdminService{
 		store:         store,
 		cognitoClient: cognitoClient,
 		dbClient:      dbClient,
@@ -40,7 +40,7 @@ func NewAdminServer(store *repository.Store, cognitoClient *cognitoidentityprovi
 }
 
 // GetSystemStats returns counts for each role table.
-func (s *AdminServer) GetSystemStats(w http.ResponseWriter, r *http.Request) {
+func (s *AdminService) GetSystemStats(w http.ResponseWriter, r *http.Request) {
 	citizens, _ := s.store.CountCitizens(r.Context())
 	staff, _ := s.store.CountStaff(r.Context())
 	admins, _ := s.store.CountAdmins(r.Context())
@@ -55,7 +55,7 @@ func (s *AdminServer) GetSystemStats(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListStaff lists all staff members.
-func (s *AdminServer) ListStaff(w http.ResponseWriter, r *http.Request) {
+func (s *AdminService) ListStaff(w http.ResponseWriter, r *http.Request) {
 	staffList, err := s.store.ListStaff(r.Context())
 	if err != nil {
 		utils.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list staff: %v", err))
@@ -71,7 +71,7 @@ func (s *AdminServer) ListStaff(w http.ResponseWriter, r *http.Request) {
 }
 
 // ManageStaff updates staff status (active/inactive/suspended).
-func (s *AdminServer) ManageStaff(w http.ResponseWriter, r *http.Request) {
+func (s *AdminService) ManageStaff(w http.ResponseWriter, r *http.Request) {
 	var req api.ManageStaffRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, http.StatusBadRequest, "invalid payload")
@@ -99,7 +99,7 @@ func (s *AdminServer) ManageStaff(w http.ResponseWriter, r *http.Request) {
 }
 
 // RegisterStaff creates a new staff member in Cognito and the staff table.
-func (s *AdminServer) RegisterStaff(w http.ResponseWriter, r *http.Request) {
+func (s *AdminService) RegisterStaff(w http.ResponseWriter, r *http.Request) {
 	var req api.RegisterStaffRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, http.StatusBadRequest, "invalid payload")
@@ -149,7 +149,7 @@ func (s *AdminServer) RegisterStaff(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListAuditLogs fetches audit logs from DynamoDB.
-func (s *AdminServer) ListAuditLogs(w http.ResponseWriter, r *http.Request) {
+func (s *AdminService) ListAuditLogs(w http.ResponseWriter, r *http.Request) {
 	var req api.ListAuditLogsRequest
 	_ = json.NewDecoder(r.Body).Decode(&req)
 

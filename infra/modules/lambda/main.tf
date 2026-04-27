@@ -278,6 +278,141 @@ resource "aws_lambda_permission" "cognito_post_confirmation" {
   source_arn    = var.user_pool_arn
 }
 
+# --- App Backend Role ---
+resource "aws_iam_role" "app_backend_role" {
+  name = "${var.project_name}-app-backend-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+    }]
+  })
+
+  tags = {
+    Project = "HelpMe"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "app_backend_basic" {
+  role       = aws_iam_role.app_backend_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_policy" "app_backend_access" {
+  name = "${var.project_name}-app-backend-policy"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action   = "events:PutEvents"
+        Effect   = "Allow"
+        Resource = [var.system_bus_arn, var.emergency_bus_arn]
+      },
+      {
+        Action   = [
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem"
+        ]
+        Effect   = "Allow"
+        Resource = [var.sessions_table_arn, var.audit_table_arn]
+      },
+      {
+        Action   = [
+          "cognito-idp:AdminGetUser",
+          "cognito-idp:AdminCreateUser",
+          "cognito-idp:AdminLinkProviderForUser",
+          "cognito-idp:AdminAddUserToGroup"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      },
+      {
+        Action   = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject"
+        ]
+        Effect   = "Allow"
+        Resource = ["${var.avatars_bucket_arn}", "${var.avatars_bucket_arn}/*"]
+      }
+    ]
+  })
+
+  tags = {
+    Project = "HelpMe"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "app_backend_access_attach" {
+  role       = aws_iam_role.app_backend_role.name
+  policy_arn = aws_iam_policy.app_backend_access.arn
+}
+
+# --- Read Service Lambda ---
+resource "aws_lambda_function" "read_service" {
+  filename      = "${path.module}/read_service.zip"
+  function_name = "${var.project_name}-read-service"
+  role          = aws_iam_role.app_backend_role.arn
+  handler       = "bootstrap"
+  runtime       = "provided.al2023"
+  timeout       = 30
+
+  environment {
+    variables = {
+      DATABASE_URL          = var.database_url
+      ACCESS_SESSIONS_TABLE = var.sessions_table_name
+      CORE_SYSTEM_BUS_NAME  = var.system_bus_name
+      EMERGENCY_BUS_NAME    = var.emergency_bus_name
+      COGNITO_USER_POOL_ID  = var.user_pool_id
+      COGNITO_CLIENT_ID     = var.client_id
+      AUDIT_LOGS_TABLE      = var.audit_table_name
+      AWS_S3_BUCKET         = var.avatars_bucket_name
+      SYSTEM_SECRET         = var.system_secret
+      AI_SERVER_URL         = var.ai_service_url
+      AI_INTERNAL_SECRET    = var.ai_internal_secret
+    }
+  }
+}
+
+# --- Write Service Lambda ---
+resource "aws_lambda_function" "write_service" {
+  filename      = "${path.module}/write_service.zip"
+  function_name = "${var.project_name}-write-service"
+  role          = aws_iam_role.app_backend_role.arn
+  handler       = "bootstrap"
+  runtime       = "provided.al2023"
+  timeout       = 30
+
+  environment {
+    variables = {
+      DATABASE_URL          = var.database_url
+      ACCESS_SESSIONS_TABLE = var.sessions_table_name
+      CORE_SYSTEM_BUS_NAME  = var.system_bus_name
+      EMERGENCY_BUS_NAME    = var.emergency_bus_name
+      COGNITO_USER_POOL_ID  = var.user_pool_id
+      COGNITO_CLIENT_ID     = var.client_id
+      AUDIT_LOGS_TABLE      = var.audit_table_name
+      AWS_S3_BUCKET         = var.avatars_bucket_name
+      SYSTEM_SECRET         = var.system_secret
+      AI_SERVER_URL         = var.ai_service_url
+      AI_INTERNAL_SECRET    = var.ai_internal_secret
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [filename]
+  }
+
+  tags = {
+    Project = "HelpMe"
+  }
+}
+
 # --- Variables & Outputs ---
 
 variable "project_name" {}
@@ -304,16 +439,29 @@ variable "smtp_from" {
 }
 
 variable "database_url" {}
-variable "user_pool_arn" {}
+variable "user_pool_arn" { default = "" }
+variable "user_pool_id" { default = "" }
+variable "client_id" { default = "" }
 variable "sessions_table_arn" {}
 variable "sessions_table_name" {}
 variable "audit_table_arn" {}
 variable "audit_table_name" {}
 
 # Bus ARNs for dual-permission
-variable "audit_system_rule_arn" {}
-variable "audit_emergency_rule_arn" {}
-variable "identification_rule_arn" {}
+variable "audit_system_rule_arn" { default = "" }
+variable "audit_emergency_rule_arn" { default = "" }
+variable "identification_rule_arn" { default = "" }
+variable "system_bus_name" { default = "" }
+variable "system_bus_arn" { default = "" }
+variable "emergency_bus_name" { default = "" }
+variable "emergency_bus_arn" { default = "" }
+
+# AI Service & S3
+variable "ai_service_url" { default = "" }
+variable "ai_internal_secret" { default = "" }
+variable "system_secret" { default = "" }
+variable "avatars_bucket_name" { default = "" }
+variable "avatars_bucket_arn" { default = "" }
 
 output "audit_lambda_arn" {
   value = aws_lambda_function.audit_worker.arn
@@ -328,4 +476,12 @@ output "grant_permission_lambda_arn" {
 
 output "post_confirmation_lambda_arn" {
   value = aws_lambda_function.post_confirmation.arn
+}
+
+output "read_service_arn" {
+  value = aws_lambda_function.read_service.arn
+}
+
+output "write_service_arn" {
+  value = aws_lambda_function.write_service.arn
 }

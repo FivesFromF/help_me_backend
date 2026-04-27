@@ -22,7 +22,7 @@ import (
 	"github.com/fivesfromf/helpme/internal/utils"
 )
 
-type CitizenServer struct {
+type CitizenService struct {
 	store         *repository.Store
 	cloudRepo     *repository.CloudRepository
 	aiClient      *ai.Client
@@ -32,7 +32,7 @@ type CitizenServer struct {
 	s3Service     *utils.S3Service
 }
 
-func NewCitizenServer(
+func NewCitizenService(
 	store *repository.Store,
 	cloudRepo *repository.CloudRepository,
 	aiClient *ai.Client,
@@ -40,8 +40,8 @@ func NewCitizenServer(
 	userPoolID string,
 	secret string,
 	s3Service *utils.S3Service,
-) *CitizenServer {
-	return &CitizenServer{
+) *CitizenService {
+	return &CitizenService{
 		store:         store,
 		cloudRepo:     cloudRepo,
 		aiClient:      aiClient,
@@ -53,7 +53,7 @@ func NewCitizenServer(
 }
 
 // getOrCreateCitizen retrieves the citizen from DB, or syncs from Cognito if missing.
-func (s *CitizenServer) getOrCreateCitizen(ctx context.Context, cognitoID string) (sqlc.Citizens, error) {
+func (s *CitizenService) getOrCreateCitizen(ctx context.Context, cognitoID string) (sqlc.Citizens, error) {
 	// 1. Try DB
 	citizen, err := s.store.GetCitizenByCognitoID(ctx, cognitoID)
 	if err == nil {
@@ -61,7 +61,7 @@ func (s *CitizenServer) getOrCreateCitizen(ctx context.Context, cognitoID string
 	}
 
 	// 2. Not in DB? Sync from Cognito (Self-Healing)
-	fmt.Printf("CitizenServer: Self-healing sync for cognito_id=%s\n", cognitoID)
+	fmt.Printf("CitizenService: Self-healing sync for cognito_id=%s\n", cognitoID)
 	user, err := s.cognitoClient.AdminGetUser(ctx, &cognitoidentityprovider.AdminGetUserInput{
 		UserPoolId: aws.String(s.userPoolID),
 		Username:   aws.String(cognitoID),
@@ -97,12 +97,12 @@ func (s *CitizenServer) getOrCreateCitizen(ctx context.Context, cognitoID string
 		return sqlc.Citizens{}, fmt.Errorf("failed to provision citizen in DB: %v", err)
 	}
 
-	fmt.Printf("CitizenServer: Successfully synchronized user %s from Cognito\n", email)
+	fmt.Printf("CitizenService: Successfully synchronized user %s from Cognito\n", email)
 	return newCitizen, nil
 }
 
 // Register completes the citizen profile after first Google login.
-func (s *CitizenServer) Register(w http.ResponseWriter, r *http.Request) {
+func (s *CitizenService) Register(w http.ResponseWriter, r *http.Request) {
 	var req api.RegisterCitizenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")
@@ -264,7 +264,7 @@ func (s *CitizenServer) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 // UpdateProfile updates all aspects of a citizen's profile.
-func (s *CitizenServer) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+func (s *CitizenService) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	var req api.UpdateProfileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")
@@ -459,7 +459,7 @@ func (s *CitizenServer) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetMedicalRecord returns the medical record for the authenticated citizen.
-func (s *CitizenServer) GetMedicalRecord(w http.ResponseWriter, r *http.Request) {
+func (s *CitizenService) GetMedicalRecord(w http.ResponseWriter, r *http.Request) {
 	cognitoID := r.Header.Get("X-Cognito-Id")
 	if cognitoID == "" {
 		authHeader := r.Header.Get("Authorization")
@@ -496,7 +496,7 @@ func (s *CitizenServer) GetMedicalRecord(w http.ResponseWriter, r *http.Request)
 }
 
 // GetProfile returns the complete profile for the authenticated citizen.
-func (s *CitizenServer) GetProfile(w http.ResponseWriter, r *http.Request) {
+func (s *CitizenService) GetProfile(w http.ResponseWriter, r *http.Request) {
 	cognitoID := r.Header.Get("X-Cognito-Id")
 	if cognitoID == "" {
 		authHeader := r.Header.Get("Authorization")
@@ -527,7 +527,7 @@ func (s *CitizenServer) GetProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 // VerifyIdentity identifies a victim via NFC or QR code.
-func (s *CitizenServer) VerifyIdentity(w http.ResponseWriter, r *http.Request) {
+func (s *CitizenService) VerifyIdentity(w http.ResponseWriter, r *http.Request) {
 	var req api.VerifyIdentityRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")
@@ -592,7 +592,7 @@ func (s *CitizenServer) VerifyIdentity(w http.ResponseWriter, r *http.Request) {
 		EmergencyContacts: mapEmergencyContacts(citizen.EmergencyContacts),
 	})
 }
-func (s *CitizenServer) SearchByFace(w http.ResponseWriter, r *http.Request) {
+func (s *CitizenService) SearchByFace(w http.ResponseWriter, r *http.Request) {
 	var req api.SearchByFaceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, http.StatusBadRequest, "invalid request body")
@@ -664,7 +664,7 @@ func (s *CitizenServer) SearchByFace(w http.ResponseWriter, r *http.Request) {
 
 // ========= NFC Management =========
 
-func (s *CitizenServer) LinkNFCTag(w http.ResponseWriter, r *http.Request) {
+func (s *CitizenService) LinkNFCTag(w http.ResponseWriter, r *http.Request) {
 	var req api.LinkNFCTagRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")
@@ -710,7 +710,7 @@ func (s *CitizenServer) LinkNFCTag(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *CitizenServer) ListMyNFCTags(w http.ResponseWriter, r *http.Request) {
+func (s *CitizenService) ListMyNFCTags(w http.ResponseWriter, r *http.Request) {
 	cognitoID := r.Header.Get("X-Cognito-Id")
 	citizen, err := s.getOrCreateCitizen(r.Context(), cognitoID)
 	if err != nil {
@@ -732,7 +732,7 @@ func (s *CitizenServer) ListMyNFCTags(w http.ResponseWriter, r *http.Request) {
 	utils.WriteJSON(w, http.StatusOK, api.ListNFCTagsResponse{Tags: resp})
 }
 
-func (s *CitizenServer) UpdateNFCTagStatus(w http.ResponseWriter, r *http.Request) {
+func (s *CitizenService) UpdateNFCTagStatus(w http.ResponseWriter, r *http.Request) {
 	nfcID := r.PathValue("id")
 	var req api.UpdateNFCTagStatusRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -765,7 +765,7 @@ func (s *CitizenServer) UpdateNFCTagStatus(w http.ResponseWriter, r *http.Reques
 	utils.WriteError(w, http.StatusNoContent, "")
 }
 
-func (s *CitizenServer) DeleteNFCTag(w http.ResponseWriter, r *http.Request) {
+func (s *CitizenService) DeleteNFCTag(w http.ResponseWriter, r *http.Request) {
 	nfcID := r.PathValue("id")
 	cognitoID := r.Header.Get("X-Cognito-Id")
 	citizen, err := s.getOrCreateCitizen(r.Context(), cognitoID)
@@ -788,7 +788,7 @@ func (s *CitizenServer) DeleteNFCTag(w http.ResponseWriter, r *http.Request) {
 
 // ========= QR Code Management =========
 
-func (s *CitizenServer) CreateQRCode(w http.ResponseWriter, r *http.Request) {
+func (s *CitizenService) CreateQRCode(w http.ResponseWriter, r *http.Request) {
 	var req api.CreateQRCodeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, http.StatusBadRequest, "invalid JSON payload")
@@ -818,7 +818,7 @@ func (s *CitizenServer) CreateQRCode(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *CitizenServer) ListMyQRCodes(w http.ResponseWriter, r *http.Request) {
+func (s *CitizenService) ListMyQRCodes(w http.ResponseWriter, r *http.Request) {
 	cognitoID := r.Header.Get("X-Cognito-Id")
 	citizen, err := s.getOrCreateCitizen(r.Context(), cognitoID)
 	if err != nil {
@@ -841,7 +841,7 @@ func (s *CitizenServer) ListMyQRCodes(w http.ResponseWriter, r *http.Request) {
 	utils.WriteJSON(w, http.StatusOK, api.ListQRCodesResponse{QRCodes: resp})
 }
 
-func (s *CitizenServer) UpdateQRCodeStatus(w http.ResponseWriter, r *http.Request) {
+func (s *CitizenService) UpdateQRCodeStatus(w http.ResponseWriter, r *http.Request) {
 	qrIDStr := r.PathValue("id")
 	var req api.UpdateQRCodeStatusRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -880,7 +880,7 @@ func (s *CitizenServer) UpdateQRCodeStatus(w http.ResponseWriter, r *http.Reques
 	utils.WriteError(w, http.StatusNoContent, "")
 }
 
-func (s *CitizenServer) DeleteQRCode(w http.ResponseWriter, r *http.Request) {
+func (s *CitizenService) DeleteQRCode(w http.ResponseWriter, r *http.Request) {
 	qrIDStr := r.PathValue("id")
 	var qrID pgtype.UUID
 	if err := qrID.Scan(qrIDStr); err != nil {

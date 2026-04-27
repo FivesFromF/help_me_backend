@@ -48,7 +48,7 @@ resource "aws_security_group" "app_tasks" {
     from_port       = 8080
     to_port         = 8080
     protocol        = "tcp"
-    security_groups = [var.lambda_proxy_sg_id]
+    cidr_blocks     = ["0.0.0.0/0"] # Protected by X-HelpMe-Secret at application level
   }
 
   egress {
@@ -149,182 +149,11 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
-# --- Service Discovery Services (Cloud Map) ---
-
-resource "aws_service_discovery_service" "write" {
-  name = "write"
-
-  dns_config {
-    namespace_id = var.service_discovery_namespace_id
-
-    dns_records {
-      ttl  = 10
-      type = "A"
-    }
-
-    routing_policy = "MULTIVALUE"
-  }
-
-  health_check_custom_config {
-  }
-}
-
-resource "aws_service_discovery_service" "read" {
-  name = "read"
-
-  dns_config {
-    namespace_id = var.service_discovery_namespace_id
-
-    dns_records {
-      ttl  = 10
-      type = "A"
-    }
-
-    routing_policy = "MULTIVALUE"
-  }
-
-  health_check_custom_config {
-  }
-}
 
 # --- CloudWatch Logs ---
 resource "aws_cloudwatch_log_group" "services" {
   name              = "/ecs/${var.project_name}-services"
   retention_in_days = 7
-
-  tags = {
-    Project = "HelpMe"
-  }
-}
-
-# --- Task Definitions ---
-
-resource "aws_ecs_task_definition" "write" {
-  family                   = "${var.project_name}-write"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  cpu                      = 256
-  memory                   = 512
-  execution_role_arn       = aws_iam_role.ecs_execution_role.arn
-  task_role_arn            = aws_iam_role.ecs_execution_role.arn
-
-  container_definitions = jsonencode([{
-    name  = "write-app"
-    image = var.write_container_image
-    portMappings = [{
-      containerPort = 8080
-      hostPort      = 8080
-      protocol      = "tcp"
-    }]
-    logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        "awslogs-group"         = aws_cloudwatch_log_group.services.name
-        "awslogs-region"        = "ap-southeast-1"
-        "awslogs-stream-prefix" = "write"
-      }
-    }
-    environment = [
-      { name = "ACCESS_SESSIONS_TABLE", value = var.sessions_table_name },
-      { name = "CORE_SYSTEM_BUS_NAME", value = var.system_bus_name },
-      { name = "DATABASE_URL", value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme" },
-      { name = "EMERGENCY_BUS_NAME", value = var.emergency_bus_name },
-      { name = "SYSTEM_SECRET", value = var.system_secret },
-      { name = "COGNITO_USER_POOL_ID", value = var.user_pool_id },
-      { name = "COGNITO_CLIENT_ID", value = var.client_id },
-      { name = "AUDIT_LOGS_TABLE", value = var.audit_table_name },
-      { name = "AWS_S3_BUCKET", value = var.avatars_bucket_name }
-    ]
-  }])
-
-  tags = {
-    Project = "HelpMe"
-  }
-}
-
-resource "aws_ecs_task_definition" "read" {
-  family                   = "${var.project_name}-read"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  cpu                      = 256
-  memory                   = 512
-  execution_role_arn       = aws_iam_role.ecs_execution_role.arn
-  task_role_arn            = aws_iam_role.ecs_execution_role.arn
-
-  container_definitions = jsonencode([{
-    name  = "read-app"
-    image = var.read_container_image
-    portMappings = [{
-      containerPort = 8080
-      hostPort      = 8080
-      protocol      = "tcp"
-    }]
-    logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        "awslogs-group"         = aws_cloudwatch_log_group.services.name
-        "awslogs-region"        = "ap-southeast-1"
-        "awslogs-stream-prefix" = "read"
-      }
-    }
-    environment = [
-      { name = "ACCESS_SESSIONS_TABLE", value = var.sessions_table_name },
-      { name = "CORE_SYSTEM_BUS_NAME", value = var.system_bus_name },
-      { name = "DATABASE_URL", value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme" },
-      { name = "EMERGENCY_BUS_NAME", value = var.emergency_bus_name },
-      { name = "SYSTEM_SECRET", value = var.system_secret },
-      { name = "COGNITO_USER_POOL_ID", value = var.user_pool_id },
-      { name = "COGNITO_CLIENT_ID", value = var.client_id },
-      { name = "AUDIT_LOGS_TABLE", value = var.audit_table_name },
-      { name = "AWS_S3_BUCKET", value = var.avatars_bucket_name }
-    ]
-  }])
-
-  tags = {
-    Project = "HelpMe"
-  }
-}
-
-# --- ECS Services (Standard Fargate) ---
-
-resource "aws_ecs_service" "write" {
-  name            = "${var.project_name}-write-service"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.write.arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
-
-  network_configuration {
-    subnets          = var.subnet_ids
-    security_groups  = [aws_security_group.app_tasks.id]
-    assign_public_ip = true
-  }
-
-  service_registries {
-    registry_arn = aws_service_discovery_service.write.arn
-  }
-
-  tags = {
-    Project = "HelpMe"
-  }
-}
-
-resource "aws_ecs_service" "read" {
-  name            = "${var.project_name}-read-service"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.read.arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
-
-  network_configuration {
-    subnets          = var.subnet_ids
-    security_groups  = [aws_security_group.app_tasks.id]
-    assign_public_ip = true
-  }
-
-  service_registries {
-    registry_arn = aws_service_discovery_service.read.arn
-  }
 
   tags = {
     Project = "HelpMe"

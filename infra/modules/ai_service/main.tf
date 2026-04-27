@@ -1,6 +1,6 @@
 # --- ECR Repository ---
 resource "aws_ecr_repository" "ai" {
-  name                 = "${var.project_name}-ai-server"
+  name                 = "${var.project_name}-ai-service"
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
@@ -24,8 +24,8 @@ resource "aws_security_group" "ai_tasks" {
     from_port       = 8000
     to_port         = 8000
     protocol        = "tcp"
-    # STRICT ACCESS: Only allows traffic from the Go Backend (Read/Write) Security Group
-    security_groups = [var.app_tasks_sg_id] 
+    # OPEN ACCESS: Protected by Application-Level Secret Header (X-HelpMe-Secret)
+    cidr_blocks     = ["0.0.0.0/0"]
   }
 
   egress {
@@ -78,7 +78,8 @@ resource "aws_ecs_task_definition" "ai" {
       }
     }
     environment = [
-      { name = "PYTHONUNBUFFERED", value = "1" }
+      { name = "PYTHONUNBUFFERED", value = "1" },
+      { name = "AI_INTERNAL_SECRET", value = var.ai_internal_secret }
     ]
   }])
 
@@ -87,27 +88,25 @@ resource "aws_ecs_task_definition" "ai" {
   }
 }
 
-# --- ECS Service with Service Discovery ---
+# --- ECS Service (FARGATE Standard) ---
 resource "aws_ecs_service" "ai" {
   name            = "${var.project_name}-ai-service"
   cluster         = var.cluster_id
   task_definition = aws_ecs_task_definition.ai.arn
   desired_count   = 1
-  launch_type     = "FARGATE"
+  launch_type     = "FARGATE" # Forced to Standard Fargate
 
   network_configuration {
-    subnets          = var.public_subnet_ids # Changed to public
+    subnets          = var.public_subnet_ids
     security_groups  = [aws_security_group.ai_tasks.id]
-    assign_public_ip = true # Enabled public IP for internet access
+    assign_public_ip = true
   }
 
   service_registries {
     registry_arn = aws_service_discovery_service.ai.arn
   }
 
-  tags = {
-    Project = "HelpMe"
-  }
+  propagate_tags = "SERVICE"
 }
 
 # --- Cloud Map Service Registration ---
@@ -132,11 +131,12 @@ resource "aws_service_discovery_service" "ai" {
 # --- Variables ---
 variable "project_name" {}
 variable "vpc_id" {}
-variable "public_subnet_ids" { type = list(string) } # Renamed for clarity
+variable "public_subnet_ids" { type = list(string) }
 variable "app_tasks_sg_id" {}
 variable "execution_role_arn" {}
 variable "cluster_id" {}
 variable "service_discovery_namespace_id" {}
+variable "ai_internal_secret" {}
 
 # --- Outputs ---
 output "repository_url" {

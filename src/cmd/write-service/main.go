@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"os"
 
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
+	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/awslabs/aws-lambda-go-api-proxy/httpadapter"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
@@ -100,38 +100,39 @@ func main() {
 	if aiServerURL == "" {
 		aiServerURL = "http://ai.helpme.local:8000" // Default internal DNS
 	}
-	aiClient := ai.NewClient(aiServerURL)
+	aiInternalSecret := os.Getenv("AI_INTERNAL_SECRET")
+	aiClient := ai.NewClient(aiServerURL, aiInternalSecret)
 
 	// Initialize Servers
-	citizenServer := services.NewCitizenServer(store, cloudRepo, aiClient, cognitoClient, userPoolID, systemSecret, s3Service)
-	emergencyServer := services.NewEmergencyServer(store)
-	authServer := services.NewAuthServer(store, cognitoClient, s3Service)
-	adminServer := services.NewAdminServer(store, cognitoClient, dynamicClient, auditTable, userPoolID, s3Service)
+	CitizenService := services.NewCitizenService(store, cloudRepo, aiClient, cognitoClient, userPoolID, systemSecret, s3Service)
+	EmergencyService := services.NewEmergencyService(store)
+	AuthService := services.NewAuthService(store, cognitoClient, s3Service)
+	AdminService := services.NewAdminService(store, cognitoClient, dynamicClient, auditTable, userPoolID, s3Service)
 
 	mux := http.NewServeMux()
 
 	// REST Route Definitions
 	// 1. Auth & Sign In
-	mux.HandleFunc("POST /signin", authServer.SignIn)
+	mux.HandleFunc("POST /signin", AuthService.SignIn)
 
 	// 2. User Operations (Citizens)
-	mux.HandleFunc("POST /user/register", citizenServer.Register)
-	mux.HandleFunc("PUT /user/profile", citizenServer.UpdateProfile)
-	mux.HandleFunc("POST /user/nfc/link", citizenServer.LinkNFCTag)
-	mux.HandleFunc("PATCH /user/nfc/{id}/status", citizenServer.UpdateNFCTagStatus)
-	mux.HandleFunc("DELETE /user/nfc/{id}", citizenServer.DeleteNFCTag)
-	mux.HandleFunc("POST /user/qr/create", citizenServer.CreateQRCode)
-	mux.HandleFunc("PATCH /user/qr/{id}/status", citizenServer.UpdateQRCodeStatus)
-	mux.HandleFunc("DELETE /user/qr/{id}", citizenServer.DeleteQRCode)
+	mux.HandleFunc("POST /user/register", CitizenService.Register)
+	mux.HandleFunc("PUT /user/profile", CitizenService.UpdateProfile)
+	mux.HandleFunc("POST /user/nfc/link", CitizenService.LinkNFCTag)
+	mux.HandleFunc("PATCH /user/nfc/{id}/status", CitizenService.UpdateNFCTagStatus)
+	mux.HandleFunc("DELETE /user/nfc/{id}", CitizenService.DeleteNFCTag)
+	mux.HandleFunc("POST /user/qr/create", CitizenService.CreateQRCode)
+	mux.HandleFunc("PATCH /user/qr/{id}/status", CitizenService.UpdateQRCodeStatus)
+	mux.HandleFunc("DELETE /user/qr/{id}", CitizenService.DeleteQRCode)
 
 	// 3. Emergency Operations
-	mux.HandleFunc("POST /emergency/report", emergencyServer.ReportEmergency)
+	mux.HandleFunc("POST /emergency/report", EmergencyService.ReportEmergency)
 
 	// 4. Admin Operations
-	mux.HandleFunc("POST /admin/stats", adminServer.GetSystemStats)
-	mux.HandleFunc("POST /admin/logs", adminServer.ListAuditLogs)
-	mux.HandleFunc("POST /admin/staff/register", adminServer.RegisterStaff)
-	mux.HandleFunc("POST /admin/staff/manage", adminServer.ManageStaff)
+	mux.HandleFunc("POST /admin/stats", AdminService.GetSystemStats)
+	mux.HandleFunc("POST /admin/logs", AdminService.ListAuditLogs)
+	mux.HandleFunc("POST /admin/staff/register", AdminService.RegisterStaff)
+	mux.HandleFunc("POST /admin/staff/manage", AdminService.ManageStaff)
 	
 	// 5. Health Check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -139,9 +140,8 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
-	fmt.Println("HelpMe WRITE Service (Refined + Cloud) starting on :8080...")
-	http.ListenAndServe(
-		":8080",
-		h2c.NewHandler(mux, &http2.Server{}),
-	)
+	// Running exclusively as AWS Lambda
+	fmt.Println("HelpMe Write Service starting as AWS Lambda...")
+	adapter := httpadapter.New(mux)
+	lambda.Start(adapter.ProxyWithContext)
 }
