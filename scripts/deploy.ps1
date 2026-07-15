@@ -1,6 +1,6 @@
 <#
-  Manual deploy for the HelpMe backend (TypeScript Lambdas + Python AI Lambda container).
-  Mirrors .github/workflows/deploy.yml for local use.
+  Deploy the HelpMe backend (TypeScript Lambdas + Python AI Lambda container).
+  This is the deployment path for the project (there is no CI workflow).
 
   Usage:
     ./scripts/deploy.ps1                 # build Lambdas + AI image, then terraform apply
@@ -21,6 +21,7 @@ $region      = "ap-southeast-1"
 $aiRepo      = "helpme-ai-service"
 $scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $rootDir     = Split-Path -Parent $scriptDir
+$infraDir    = Join-Path $rootDir "infra"
 $aiSourceDir = Join-Path $rootDir "src\functions\ai-service"
 
 Write-Host "--- HelpMe deploy ($Service) ---" -ForegroundColor Yellow
@@ -59,13 +60,28 @@ function Deploy-AI {
     }
 }
 
+# --- Execution ---
 if ($Service -eq "all" -or $Service -eq "lambda") { Build-Lambdas }
-if ($Service -eq "all" -or $Service -eq "ai")     { Deploy-AI }
+
+if (-not $SkipApply) {
+    Write-Host "[*] terraform init..." -ForegroundColor Cyan
+    terraform -chdir="$infraDir" init
+}
+
+if ($Service -eq "all" -or $Service -eq "ai") {
+    # The AI Lambda is a container image, so its ECR repo must exist before the
+    # docker push (and hold an image before the Lambda can be created). Create
+    # just the repo first via a targeted apply, then push.
+    if (-not $SkipApply) {
+        Write-Host "[*] Ensuring AI ECR repo exists (targeted apply)..." -ForegroundColor Cyan
+        terraform -chdir="$infraDir" apply -auto-approve -target="module.ai_service.aws_ecr_repository.ai"
+    }
+    Deploy-AI
+}
 
 if (-not $SkipApply) {
     Write-Host "[*] terraform apply..." -ForegroundColor Cyan
-    terraform -chdir="$rootDir\infra" init
-    terraform -chdir="$rootDir\infra" apply -auto-approve
+    terraform -chdir="$infraDir" apply -auto-approve
 }
 
 Write-Host "--- Deploy complete ---" -ForegroundColor Green
