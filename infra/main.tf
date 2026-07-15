@@ -38,7 +38,8 @@ module "lambda" {
   database_url = var.supabase_db_url
   
   # AI Service & Secrets
-  ai_service_url     = "http://${module.ai_service.repository_url}:8000" # Placeholder
+  ai_lambda_name     = module.ai_service.lambda_name
+  ai_lambda_arn      = module.ai_service.lambda_arn
   ai_internal_secret = var.ai_internal_secret
   system_secret      = var.system_secret
 

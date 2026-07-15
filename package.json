@@ -1,0 +1,41 @@
+{
+  "name": "help_me_backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "node build.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FivesFromF/help_me_backend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/FivesFromF/help_me_backend/issues"
+  },
+  "homepage": "https://github.com/FivesFromF/help_me_backend#readme",
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1052.0",
+    "@aws-sdk/client-lambda": "^3.1052.0",
+    "aws-jwt-verify": "^5.1.1",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
+    "itty-router": "^5.0.23",
+    "pg": "^8.21.0"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-cloudwatch-logs": "^3.1052.0",
+    "@types/aws-lambda": "^8.10.161",
+    "@types/node": "^25.9.1",
+    "@types/pg": "^8.20.0",
+    "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.0",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  }
+}

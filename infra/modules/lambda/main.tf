@@ -44,12 +44,19 @@ resource "aws_iam_role_policy_attachment" "audit_dynamodb_attach" {
   policy_arn = aws_iam_policy.audit_dynamodb_write.arn
 }
 
+data "archive_file" "audit_worker_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/../../../dist/audit-worker"
+  output_path = "${path.module}/audit_worker.zip"
+}
+
 resource "aws_lambda_function" "audit_worker" {
-  filename      = "${path.module}/audit_worker.zip"
-  function_name = "${var.project_name}-audit-worker"
-  role          = aws_iam_role.audit_worker_role.arn
-  handler       = "bootstrap"
-  runtime       = "provided.al2023"
+  filename         = data.archive_file.audit_worker_zip.output_path
+  source_code_hash = data.archive_file.audit_worker_zip.output_base64sha256
+  function_name    = "${var.project_name}-audit-worker"
+  role             = aws_iam_role.audit_worker_role.arn
+  handler          = "index.main"
+  runtime          = "nodejs20.x"
 
   environment {
     variables = {
@@ -108,12 +115,19 @@ resource "aws_iam_role_policy_attachment" "notification_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+data "archive_file" "notification_worker_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/../../../dist/notification-worker"
+  output_path = "${path.module}/notification_worker.zip"
+}
+
 resource "aws_lambda_function" "notification_worker" {
-  filename      = "${path.module}/notification_worker.zip"
-  function_name = "${var.project_name}-notification-worker"
-  role          = aws_iam_role.notification_worker_role.arn
-  handler       = "bootstrap"
-  runtime       = "provided.al2023"
+  filename         = data.archive_file.notification_worker_zip.output_path
+  source_code_hash = data.archive_file.notification_worker_zip.output_base64sha256
+  function_name    = "${var.project_name}-notification-worker"
+  role             = aws_iam_role.notification_worker_role.arn
+  handler          = "index.main"
+  runtime          = "nodejs20.x"
 
   environment {
     variables = {
@@ -180,12 +194,19 @@ resource "aws_iam_role_policy_attachment" "grant_dynamodb_attach" {
   policy_arn = aws_iam_policy.grant_dynamodb.arn
 }
 
+data "archive_file" "grant_permission_worker_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/../../../dist/grant-permission-worker"
+  output_path = "${path.module}/grant_permission_worker.zip"
+}
+
 resource "aws_lambda_function" "grant_permission_worker" {
-  filename      = "${path.module}/grant_permission_worker.zip"
-  function_name = "${var.project_name}-grant-permission-worker"
-  role          = aws_iam_role.grant_permission_worker_role.arn
-  handler       = "bootstrap"
-  runtime       = "provided.al2023"
+  filename         = data.archive_file.grant_permission_worker_zip.output_path
+  source_code_hash = data.archive_file.grant_permission_worker_zip.output_base64sha256
+  function_name    = "${var.project_name}-grant-permission-worker"
+  role             = aws_iam_role.grant_permission_worker_role.arn
+  handler          = "index.main"
+  runtime          = "nodejs20.x"
 
   environment {
     variables = {
@@ -253,12 +274,25 @@ resource "aws_iam_role_policy_attachment" "post_confirmation_cognito_attach" {
   policy_arn = aws_iam_policy.post_confirmation_cognito.arn
 }
 
+data "archive_file" "post_confirmation_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/../../../dist/post-confirmation"
+  output_path = "${path.module}/post_confirmation.zip"
+}
+
 resource "aws_lambda_function" "post_confirmation" {
-  filename      = "${path.module}/post_confirmation.zip"
-  function_name = "${var.project_name}-post-confirmation"
-  role          = aws_iam_role.post_confirmation_role.arn
-  handler       = "bootstrap"
-  runtime       = "provided.al2023"
+  filename         = data.archive_file.post_confirmation_zip.output_path
+  source_code_hash = data.archive_file.post_confirmation_zip.output_base64sha256
+  function_name    = "${var.project_name}-post-confirmation"
+  role             = aws_iam_role.post_confirmation_role.arn
+  handler          = "index.main"
+  runtime          = "nodejs20.x"
+
+  environment {
+    variables = {
+      DATABASE_URL = var.database_url
+    }
+  }
 
   lifecycle {
     ignore_changes = [filename]
@@ -339,6 +373,11 @@ resource "aws_iam_policy" "app_backend_access" {
         ]
         Effect   = "Allow"
         Resource = ["${var.avatars_bucket_arn}", "${var.avatars_bucket_arn}/*"]
+      },
+      {
+        Action   = "lambda:InvokeFunction"
+        Effect   = "Allow"
+        Resource = var.ai_lambda_arn
       }
     ]
   })
@@ -354,12 +393,19 @@ resource "aws_iam_role_policy_attachment" "app_backend_access_attach" {
 }
 
 # --- Read Service Lambda ---
+data "archive_file" "read_service_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/../../../dist/read-service"
+  output_path = "${path.module}/read_service.zip"
+}
+
 resource "aws_lambda_function" "read_service" {
-  filename      = "${path.module}/read_service.zip"
-  function_name = "${var.project_name}-read-service"
-  role          = aws_iam_role.app_backend_role.arn
-  handler       = "bootstrap"
-  runtime       = "provided.al2023"
+  filename         = data.archive_file.read_service_zip.output_path
+  source_code_hash = data.archive_file.read_service_zip.output_base64sha256
+  function_name    = "${var.project_name}-read-service"
+  role             = aws_iam_role.app_backend_role.arn
+  handler          = "index.main"
+  runtime          = "nodejs20.x"
   timeout       = 30
 
   environment {
@@ -373,19 +419,26 @@ resource "aws_lambda_function" "read_service" {
       AUDIT_LOGS_TABLE      = var.audit_table_name
       AWS_S3_BUCKET         = var.avatars_bucket_name
       SYSTEM_SECRET         = var.system_secret
-      AI_SERVER_URL         = var.ai_service_url
+      AI_LAMBDA_NAME        = var.ai_lambda_name
       AI_INTERNAL_SECRET    = var.ai_internal_secret
     }
   }
 }
 
 # --- Write Service Lambda ---
+data "archive_file" "write_service_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/../../../dist/write-service"
+  output_path = "${path.module}/write_service.zip"
+}
+
 resource "aws_lambda_function" "write_service" {
-  filename      = "${path.module}/write_service.zip"
-  function_name = "${var.project_name}-write-service"
-  role          = aws_iam_role.app_backend_role.arn
-  handler       = "bootstrap"
-  runtime       = "provided.al2023"
+  filename         = data.archive_file.write_service_zip.output_path
+  source_code_hash = data.archive_file.write_service_zip.output_base64sha256
+  function_name    = "${var.project_name}-write-service"
+  role             = aws_iam_role.app_backend_role.arn
+  handler          = "index.main"
+  runtime          = "nodejs20.x"
   timeout       = 30
 
   environment {
@@ -399,7 +452,7 @@ resource "aws_lambda_function" "write_service" {
       AUDIT_LOGS_TABLE      = var.audit_table_name
       AWS_S3_BUCKET         = var.avatars_bucket_name
       SYSTEM_SECRET         = var.system_secret
-      AI_SERVER_URL         = var.ai_service_url
+      AI_LAMBDA_NAME        = var.ai_lambda_name
       AI_INTERNAL_SECRET    = var.ai_internal_secret
     }
   }
@@ -457,7 +510,8 @@ variable "emergency_bus_name" { default = "" }
 variable "emergency_bus_arn" { default = "" }
 
 # AI Service & S3
-variable "ai_service_url" { default = "" }
+variable "ai_lambda_name" { default = "" }
+variable "ai_lambda_arn" { default = "" }
 variable "ai_internal_secret" { default = "" }
 variable "system_secret" { default = "" }
 variable "avatars_bucket_name" { default = "" }

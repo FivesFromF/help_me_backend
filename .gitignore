@@ -1,45 +1,36 @@
+# Node.js
+node_modules/
+dist/
+npm-debug.log
+yarn-error.log
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
 # Terraform
 .terraform/
 *.tfstate
 *.tfstate.backup
 *.tfvars
-*.tfvars.json
-.terraform.lock.hcl
+*.tfplan
 
-# Go
-/src/main
-/src/*.exe
-/src/*.test
-/src/vendor/
-/src/bin/
-/src/test_sms
-/src/notification_worker.zip
-/src/twilio_worker.zip
-/src/write_server.zip
-/src/read_server.zip
-notification-worker.exe
-test_sms.go
-test_verify.go
-write-server.exe
-read-server.exe
+# Serverless (cũ)
+.serverless/
 
-# OS/IDE
-.DS_Store
-.vscode/
-.idea/
-*.swp
-*.bak
-
-client_secret_310556282701-v8ou06paidmvdh0v6rc7njprchnhgidu.apps.googleusercontent.com.json
+# Built Lambda Archives
 *.zip
-bootstrap
-.env
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-.venv/
-venv/
-ENV/
-*.log
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Secrets & sensitive data (never commit)
+client_secret_*.json
+**/client_secret_*.json
+users.json
+
+# Build/archive artifacts
+**/unzipped_authorizer/
+src_go_archive/
