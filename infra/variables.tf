@@ -70,22 +70,3 @@ variable "system_secret" {
   sensitive   = true
 }
 
-# --- Deprecated (RDS/ECS) ---
-variable "db_password" {
-  description = "Password for RDS PostgreSQL (Deprecated)"
-  type        = string
-  sensitive   = true
-  default     = "DEPRECATED"
-}
-
-variable "read_container_image" {
-  description = "ECR image URL for the Read service (Deprecated)"
-  type        = string
-  default     = "DEPRECATED"
-}
-
-variable "write_container_image" {
-  description = "ECR image URL for the Write service (Deprecated)"
-  type        = string
-  default     = "DEPRECATED"
-}

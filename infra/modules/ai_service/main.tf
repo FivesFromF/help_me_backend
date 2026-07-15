@@ -61,15 +61,7 @@ resource "aws_cloudwatch_log_group" "ai" {
 }
 
 # --- Variables ---
-# Giữ nguyên các tham số cũ từ main.tf để không vỡ cấu trúc
 variable "project_name" {}
-variable "vpc_id" {}
-variable "public_subnet_ids" { type = list(string) }
-variable "app_tasks_sg_id" {}
-variable "execution_role_arn" {}
-variable "cluster_id" {}
-variable "service_discovery_namespace_id" {}
-variable "ai_internal_secret" {}
 
 # --- Outputs ---
 output "repository_url" {

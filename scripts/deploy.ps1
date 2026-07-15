@@ -1,83 +1,71 @@
+<#
+  Manual deploy for the HelpMe backend (TypeScript Lambdas + Python AI Lambda container).
+  Mirrors .github/workflows/deploy.yml for local use.
+
+  Usage:
+    ./scripts/deploy.ps1                 # build Lambdas + AI image, then terraform apply
+    ./scripts/deploy.ps1 -Service ai     # only rebuild & roll the AI Lambda image
+    ./scripts/deploy.ps1 -Service lambda # only rebuild JS bundles + terraform apply
+    ./scripts/deploy.ps1 -SkipApply      # build/push only, no terraform
+
+  Requires: Node 20+, Docker, Terraform, AWS CLI (configured), and infra/terraform.tfvars.
+#>
 param(
-    [Parameter(Mandatory = $false)]
-    [ValidateSet("all", "read", "write", "ai")]
-    [string]$Service = "all"
+    [ValidateSet("all", "lambda", "ai")]
+    [string]$Service = "all",
+    [switch]$SkipApply
 )
 
-$projectName = "helpme"
-$region = "ap-southeast-1"
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$rootDir = Split-Path -Parent $scriptDir
-$lambdaDest = Join-Path $rootDir "infra\modules\lambda"
+$ErrorActionPreference = "Stop"
+$region      = "ap-southeast-1"
+$aiRepo      = "helpme-ai-service"
+$scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$rootDir     = Split-Path -Parent $scriptDir
+$aiSourceDir = Join-Path $rootDir "src\functions\ai-service"
 
-Write-Host "--- Initiating HelpMe Deployment Sequence ($Service) ---" -ForegroundColor Yellow
+Write-Host "--- HelpMe deploy ($Service) ---" -ForegroundColor Yellow
 
-# Fetch AWS Account ID automatically
 $accountId = (aws sts get-caller-identity --query Account --output text)
 if (-not $accountId) {
-    Write-Host "[!] Could not fetch AWS Account ID. Please ensure AWS CLI is configured." -ForegroundColor Red
-    exit
+    Write-Host "[!] Could not resolve AWS account. Run 'aws configure' / SSO login first." -ForegroundColor Red
+    exit 1
 }
+$ecrRegistry = "$accountId.dkr.ecr.$region.amazonaws.com"
+$aiImage     = "$ecrRegistry/${aiRepo}:latest"
 
-function Build-Lambda([string]$name, [string]$path) {
-    Write-Host "[*] Building Lambda Service: $name..." -ForegroundColor Cyan
-    $env:GOOS = "linux"
-    $env:GOARCH = "amd64"
-    $env:CGO_ENABLED = "0"
-    
-    $absPath = Join-Path $rootDir $path
-    cd $absPath
-    
-    go build -o bootstrap main.go
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "    - Build successful. Zipping..."
-        $zipPath = Join-Path $lambdaDest "$($name)_service.zip"
-        Compress-Archive -Path bootstrap -DestinationPath $zipPath -Force
-        Remove-Item bootstrap
-        Write-Host "    - Package ready: $zipPath" -ForegroundColor Green
-    } else {
-        Write-Host "    - Build Failed for $name!" -ForegroundColor Red
+function Build-Lambdas {
+    Write-Host "[*] Building TypeScript Lambda bundles (node build.js)..." -ForegroundColor Cyan
+    Push-Location $rootDir
+    try {
+        npm ci
+        node build.js
+    } finally {
+        Pop-Location
     }
-    cd $rootDir
 }
 
-function Deploy-AI() {
-    Write-Host "[*] Building AI Service Docker Image..." -ForegroundColor Cyan
-    $repoName = "$($projectName)-ai-service"
-    $ecrUrl = "$($accountId).dkr.ecr.$($region).amazonaws.com/$($repoName)"
-    
-    # 1. Login to ECR
-    Write-Host "    - Logging in to ECR..."
-    aws ecr get-login-password --region $region | docker login --username AWS --password-stdin "$($accountId).dkr.ecr.$($region).amazonaws.com"
-    
-    # 2. Build Docker Image (Using src as context)
-    Write-Host "    - Building image..."
-    $srcPath = Join-Path $rootDir "src"
-    cd $srcPath
-    docker build -t $repoName -f cmd/ai-service/Dockerfile .
-    
-    # 3. Tag and Push
-    Write-Host "    - Tagging and Pushing to $ecrUrl..."
-    docker tag "$($repoName):latest" "$($ecrUrl):latest"
-    docker push "$($ecrUrl):latest"
-    
-    Write-Host "    - AI Service deployed to ECR." -ForegroundColor Green
-    cd $rootDir
+function Deploy-AI {
+    Write-Host "[*] Building & pushing AI Lambda image..." -ForegroundColor Cyan
+    aws ecr get-login-password --region $region | docker login --username AWS --password-stdin $ecrRegistry
+    docker build -t $aiImage $aiSourceDir
+    docker push $aiImage
+    Write-Host "    - Pushed $aiImage" -ForegroundColor Green
+
+    # Roll the running function if it already exists (image_uri is pinned in Terraform).
+    aws lambda get-function --function-name $aiRepo *> $null
+    if ($LASTEXITCODE -eq 0) {
+        aws lambda update-function-code --function-name $aiRepo --image-uri $aiImage | Out-Null
+        Write-Host "    - Rolled $aiRepo to new image" -ForegroundColor Green
+    }
 }
 
-# --- Execution ---
+if ($Service -eq "all" -or $Service -eq "lambda") { Build-Lambdas }
+if ($Service -eq "all" -or $Service -eq "ai")     { Deploy-AI }
 
-if ($Service -eq "all" -or $Service -eq "read") {
-    Build-Lambda "read" "src\cmd\read-service"
+if (-not $SkipApply) {
+    Write-Host "[*] terraform apply..." -ForegroundColor Cyan
+    terraform -chdir="$rootDir\infra" init
+    terraform -chdir="$rootDir\infra" apply -auto-approve
 }
 
-if ($Service -eq "all" -or $Service -eq "write") {
-    Build-Lambda "write" "src\cmd\write-service"
-}
-
-if ($Service -eq "all" -or $Service -eq "ai") {
-    Deploy-AI
-}
-
-Write-Host "--- Deployment Sequence Completed ---" -ForegroundColor Green
-Write-Host "Reminder: Run 'terraform apply' in 'infra' folder to update infrastructure." -ForegroundColor Yellow
+Write-Host "--- Deploy complete ---" -ForegroundColor Green

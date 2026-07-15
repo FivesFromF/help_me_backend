@@ -4,12 +4,6 @@ resource "random_string" "suffix" {
   upper   = false
 }
 
-module "vpc" {
-  source       = "./modules/vpc"
-  project_name = var.project_name
-  vpc_cidr     = "10.0.0.0/16"
-}
-
 module "dynamodb" {
   source       = "./modules/dynamodb"
   project_name = var.project_name
@@ -88,15 +82,8 @@ module "s3" {
 }
 
 module "ai_service" {
-  source                         = "./modules/ai_service"
-  project_name                   = var.project_name
-  vpc_id                         = module.vpc.vpc_id
-  public_subnet_ids              = module.vpc.public_subnets
-  app_tasks_sg_id                = module.ecs.app_tasks_sg_id
-  execution_role_arn             = module.ecs.execution_role_arn
-  cluster_id                     = module.ecs.cluster_id
-  service_discovery_namespace_id = module.vpc.service_discovery_namespace_id
-  ai_internal_secret             = var.ai_internal_secret
+  source       = "./modules/ai_service"
+  project_name = var.project_name
 }
 
 module "authorizer" {
@@ -106,45 +93,6 @@ module "authorizer" {
   client_id          = module.auth.client_id
   user_pool_endpoint = module.auth.user_pool_endpoint
   api_execution_arn  = module.apigateway.execution_arn
-}
-
-module "ecs" {
-  source                = "./modules/ecs"
-  project_name          = var.project_name
-  vpc_id                = module.vpc.vpc_id
-  subnet_ids            = module.vpc.public_subnets
-  
-  # Bus Info
-  system_bus_name       = module.eventbridge.system_bus_name
-  system_bus_arn        = module.eventbridge.system_bus_arn
-  emergency_bus_name    = module.eventbridge.emergency_bus_name
-  emergency_bus_arn     = module.eventbridge.emergency_bus_arn
-
-  # Images (Deprecated but required by module variables for now)
-  read_container_image  = "DEPRECATED"
-  write_container_image = "DEPRECATED"
-
-  # DB & Secret
-  db_cluster_endpoint   = "DEPRECATED"
-  db_password           = "DEPRECATED"
-  system_secret         = var.system_secret
-
-  # DynamoDB Sessions
-  sessions_table_name   = module.dynamodb.sessions_table_name
-  sessions_table_arn    = module.dynamodb.sessions_table_arn
-
-  # Cognito & Audit
-  user_pool_id     = module.auth.user_pool_id
-  client_id        = module.auth.client_id
-  audit_table_name = module.dynamodb.audit_table_name
-
-  # S3 Avatars
-  avatars_bucket_name = module.s3.bucket_name
-  avatars_bucket_arn  = module.s3.bucket_arn
-
-  # Budget Architecture additions
-  service_discovery_namespace_id = module.vpc.service_discovery_namespace_id
-  lambda_proxy_sg_id             = "DEPRECATED" # Placeholder
 }
 
 module "apigateway" {

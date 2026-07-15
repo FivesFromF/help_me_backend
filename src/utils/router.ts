@@ -44,7 +44,9 @@ export const handleEvent = async (event: APIGatewayProxyEventV2): Promise<APIGat
 
 // Helper to get Auth Info
 export const getAuthContext = (event: APIGatewayProxyEventV2) => {
-  const auth = event.requestContext.authorizer?.lambda;
+  // API Gateway v2 injects the Lambda authorizer's context here; the base
+  // APIGatewayProxyEventV2 type doesn't model it, so read it defensively.
+  const auth = (event.requestContext as any).authorizer?.lambda;
   if (!auth) throw new Error("Unauthorized: Missing Authorizer Context");
   return {
     userId: auth.userId as string,

@@ -1,3 +1,42 @@
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+
+// Triggered by "victim.identified" on the emergency bus. Grants the responder
+// time-boxed access to the victim's record by writing a session row that expires
+// via DynamoDB TTL (expires_at, epoch seconds).
+
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const TABLE = process.env.ACCESS_SESSIONS_TABLE;
+const SESSION_TTL_SECONDS = 60 * 60; // 1 hour
+
 export const main = async (event: any) => {
-  console.log("Grant Permission Worker Triggered", JSON.stringify(event));
+  if (!TABLE) {
+    console.error("[grant] ACCESS_SESSIONS_TABLE not set; dropping event");
+    return;
+  }
+
+  const detail = event.detail ?? {};
+  const responderId = detail.responderId ?? detail.actorId;
+  const victimId = detail.targetId ?? detail.victimId;
+  if (!responderId || !victimId) {
+    console.warn("[grant] missing responderId/victimId; skipping", detail);
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  await ddb.send(
+    new PutCommand({
+      TableName: TABLE,
+      Item: {
+        session_id: `${responderId}#${victimId}`, // matches table hash_key convention
+        responder_id: responderId,
+        victim_id: victimId,
+        method: detail.method ?? null,
+        granted_at: new Date().toISOString(),
+        expires_at: now + SESSION_TTL_SECONDS,
+      },
+    })
+  );
+
+  console.log(`[grant] session for responder ${responderId} → victim ${victimId}`);
 };

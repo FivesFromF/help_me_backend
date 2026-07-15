@@ -4,6 +4,7 @@ import { citizens, medicalRecords, nfcTags } from "../../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { verifyHashId } from "../../services/hash.service";
 import { extractFaceFeature } from "../../services/ai.service";
+import { publishEmergencyEvent } from "../../services/events.service";
 
 // Middleware (Requires 'citizen' role for all /citizen/* routes)
 apiRouter.all("/api/v1/read/citizen/*", requireRole(["citizen"]));
@@ -39,6 +40,7 @@ apiRouter.get("/api/v1/read/citizen/nfc-tags", async (req, event) => {
 
 // POST Scan (For Staff/Admin)
 apiRouter.post("/api/v1/read/scan", requireRole(["staff", "admin"]), async (req, event) => {
+  const { userId: responderId, role: responderRole } = getAuthContext(event);
   const body = await req.json().catch(() => ({}));
   const { method, tagId, hashId, imageBase64 } = body;
 
@@ -58,9 +60,18 @@ apiRouter.post("/api/v1/read/scan", requireRole(["staff", "admin"]), async (req,
     // 3. Valid! Get citizen info
     const [citizen] = await db.select().from(citizens).where(eq(citizens.id, tag.citizenId));
     const [record] = await db.select().from(medicalRecords).where(eq(medicalRecords.citizenId, tag.citizenId));
-    
+
+    // Fire identification event → notify next-of-kin + grant responder a session + audit.
+    await publishEmergencyEvent("victim.identified", {
+      actorId: responderId,
+      responderId,
+      responderRole,
+      targetId: tag.citizenId,
+      method: "NFC",
+    });
+
     return Response.json({ citizen, record });
-  } 
+  }
   
   if (method === "FACE") {
     if (!imageBase64) return Response.json({ error: "Missing imageBase64" }, { status: 400 });
@@ -86,7 +97,16 @@ apiRouter.post("/api/v1/read/scan", requireRole(["staff", "admin"]), async (req,
     // 3. Valid! Return match
     const match = results[0].citizen;
     const [record] = await db.select().from(medicalRecords).where(eq(medicalRecords.citizenId, match.id));
-    
+
+    await publishEmergencyEvent("victim.identified", {
+      actorId: responderId,
+      responderId,
+      responderRole,
+      targetId: match.id,
+      method: "FACE",
+      metadata: { distance: results[0].distance },
+    });
+
     return Response.json({ citizen: match, record, distance: results[0].distance });
   }
 
