@@ -4,7 +4,8 @@ import { citizens, medicalRecords, nfcTags } from "../../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { verifyHashId } from "../../services/hash.service";
 import { extractFaceFeature } from "../../services/ai.service";
-import { publishEmergencyEvent } from "../../services/events.service";
+import { publishEmergencyEvent, publishSystemEvent } from "../../services/events.service";
+import { hasActiveSession } from "../../services/session.service";
 
 // Middleware (Requires 'citizen' role for all /citizen/* routes)
 apiRouter.all("/api/v1/read/citizen/*", requireRole(["citizen"]));
@@ -111,6 +112,41 @@ apiRouter.post("/api/v1/read/scan", requireRole(["staff", "admin"]), async (req,
   }
 
   return Response.json({ error: "Invalid method" }, { status: 400 });
+});
+
+// GET Victim Record (re-access after a scan) — gated on an active access session.
+// The /read/scan above is the grant point: it fires "victim.identified", which the
+// grant-permission-worker turns into a 1-hour session. This endpoint lets a responder
+// re-open that victim's record within the window WITHOUT re-scanning, but denies access
+// once the session expires (or if they never scanned this victim).
+apiRouter.get("/api/v1/read/victim/:victimId", requireRole(["staff", "admin"]), async (req, event) => {
+  const { userId: responderId, role: responderRole } = getAuthContext(event);
+  const { victimId } = (req as any).params;
+
+  if (!victimId) return Response.json({ error: "Missing victimId" }, { status: 400 });
+
+  if (!(await hasActiveSession(responderId, victimId))) {
+    return Response.json(
+      { error: "No active access session. Scan the victim to obtain access." },
+      { status: 403 }
+    );
+  }
+
+  const [citizen] = await db.select().from(citizens).where(eq(citizens.id, victimId));
+  if (!citizen) return Response.json({ error: "Victim not found" }, { status: 404 });
+
+  const [record] = await db.select().from(medicalRecords).where(eq(medicalRecords.citizenId, victimId));
+
+  // Audit the re-access on the system bus ("which staff viewed whose record, when").
+  await publishSystemEvent("victim.record.accessed", {
+    actorId: responderId,
+    responderId,
+    responderRole,
+    targetId: victimId,
+    method: "SESSION",
+  });
+
+  return Response.json({ citizen, record });
 });
 
 export const main = handleEvent;
