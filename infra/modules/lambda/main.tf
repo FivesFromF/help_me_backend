@@ -115,6 +115,25 @@ resource "aws_iam_role_policy_attachment" "notification_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# SMS to emergency contacts via SNS. Publishing an SMS to a raw phone number
+# (no topic) has no ARN to scope to, so the resource must be "*".
+resource "aws_iam_policy" "notification_sns_sms" {
+  name = "${var.project_name}-notification-sns-sms-policy"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action   = "sns:Publish"
+      Effect   = "Allow"
+      Resource = "*"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "notification_sns_attach" {
+  role       = aws_iam_role.notification_worker_role.name
+  policy_arn = aws_iam_policy.notification_sns_sms.arn
+}
+
 data "archive_file" "notification_worker_zip" {
   type        = "zip"
   source_dir  = "${path.module}/../../../dist/notification-worker"
@@ -131,12 +150,13 @@ resource "aws_lambda_function" "notification_worker" {
 
   environment {
     variables = {
-      SMTP_HOST    = var.smtp_host
-      SMTP_PORT    = var.smtp_port
-      SMTP_USER    = var.smtp_user
-      SMTP_PASS    = var.smtp_pass
-      SMTP_FROM    = var.smtp_from
-      DATABASE_URL = var.database_url
+      SMTP_HOST                = var.smtp_host
+      SMTP_PORT                = var.smtp_port
+      SMTP_USER                = var.smtp_user
+      SMTP_PASS                = var.smtp_pass
+      SMTP_FROM                = var.smtp_from
+      DATABASE_URL             = var.database_url
+      SMS_DEFAULT_COUNTRY_CODE = var.sms_default_country_code
     }
   }
 
@@ -489,6 +509,12 @@ variable "smtp_pass" {
 
 variable "smtp_from" {
   type = string
+}
+
+variable "sms_default_country_code" {
+  description = "Country code (digits only) for local-format emergency-contact phone numbers"
+  type        = string
+  default     = "84"
 }
 
 variable "database_url" {}
