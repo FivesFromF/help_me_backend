@@ -16,19 +16,12 @@ resource "aws_iam_role_policy_attachment" "basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-data "archive_file" "authorizer_zip" {
-  type        = "zip"
-  source_dir  = "${path.module}/../../../dist/authorizer"
-  output_path = "${path.module}/authorizer.zip"
-}
-
 resource "aws_lambda_function" "authorizer" {
-  filename         = data.archive_file.authorizer_zip.output_path
-  source_code_hash = data.archive_file.authorizer_zip.output_base64sha256
-  function_name    = "${var.project_name}-authorizer"
-  role             = aws_iam_role.authorizer_role.arn
-  handler          = "index.main"
-  runtime          = "nodejs20.x"
+  filename      = "${path.module}/authorizer.zip"
+  function_name = "${var.project_name}-authorizer"
+  role          = aws_iam_role.authorizer_role.arn
+  handler       = "bootstrap" # For Go AL2023
+  runtime       = "provided.al2023"
 
   environment {
     variables = {
@@ -37,6 +30,8 @@ resource "aws_lambda_function" "authorizer" {
       COGNITO_ENDPOINT  = var.user_pool_endpoint
     }
   }
+
+  source_code_hash = filebase64sha256("${path.module}/authorizer.zip")
 }
 
 resource "aws_lambda_permission" "apigw" {

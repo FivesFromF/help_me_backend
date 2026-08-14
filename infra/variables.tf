@@ -51,15 +51,9 @@ variable "smtp_from" {
   type        = string
 }
 
-# --- Supabase & Secrets ---
-variable "supabase_db_url" {
-  description = "Connection string for Supabase PostgreSQL"
-  type        = string
-  sensitive   = true
-}
-
-variable "ai_internal_secret" {
-  description = "Secret key for communication between Lambda and AI Service"
+# --- Database & Secrets ---
+variable "db_password" {
+  description = "Password for RDS PostgreSQL"
   type        = string
   sensitive   = true
 }
@@ -70,3 +64,13 @@ variable "system_secret" {
   sensitive   = true
 }
 
+# --- Container Images ---
+variable "read_container_image" {
+  description = "ECR image URL for the Read service"
+  type        = string
+}
+
+variable "write_container_image" {
+  description = "ECR image URL for the Write service"
+  type        = string
+}
