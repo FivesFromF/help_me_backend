@@ -110,7 +110,7 @@ module "ecs" {
   source                = "./modules/ecs"
   project_name          = var.project_name
   vpc_id                = module.vpc.vpc_id
-  subnet_ids            = module.vpc.public_subnets # Still using public subnets for internet access without NAT
+  subnet_ids            = module.vpc.public_subnets # Using public subnets for MVP simplicity (assign_public_ip=true)
   
   # Bus Info
   system_bus_name       = module.eventbridge.system_bus_name
@@ -139,24 +139,13 @@ module "ecs" {
   # S3 Avatars
   avatars_bucket_name = module.s3.bucket_name
   avatars_bucket_arn  = module.s3.bucket_arn
-
-  # Budget Architecture additions
-  service_discovery_namespace_id = module.vpc.service_discovery_namespace_id
-  lambda_proxy_sg_id             = module.lambda_proxy.lambda_sg_id
-}
-
-module "lambda_proxy" {
-  source            = "./modules/lambda_proxy"
-  project_name      = var.project_name
-  vpc_id            = module.vpc.vpc_id
-  subnet_ids        = module.vpc.private_subnets
-  api_execution_arn = module.apigateway.execution_arn
 }
 
 module "apigateway" {
   source                 = "./modules/apigateway"
   project_name           = var.project_name
-  lambda_function_arn    = module.lambda_proxy.lambda_function_arn
+  write_service_endpoint = module.ecs.write_service_endpoint
+  read_service_endpoint  = module.ecs.read_service_endpoint
   authorizer_uri         = module.authorizer.authorizer_uri
 }
 

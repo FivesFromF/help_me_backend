@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: helpme-db-local
     restart: always
     environment:
@@ -13,6 +13,51 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
+  ai-server:
+    build:
+      context: src/services/ai-server
+      dockerfile: Dockerfile
+    container_name: helpme-ai-server
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+    restart: always
+
+  write-server:
+    build:
+      context: .
+      dockerfile: src/services/write-server/Dockerfile
+    container_name: helpme-write-server
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - DATABASE_URL=postgres://postgres:password@db:5432/helpme
+      - AI_SERVICE_URL=http://ai-server:8000
+      - SYSTEM_SECRET=helpme-secret-key
+    depends_on:
+      - db
+      - ai-server
+    restart: always
+
+  read-server:
+    build:
+      context: .
+      dockerfile: src/services/read-server/Dockerfile
+    container_name: helpme-read-server
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - DATABASE_URL=postgres://postgres:password@db:5432/helpme
+      - AI_SERVICE_URL=http://ai-server:8000
+      - SYSTEM_SECRET=helpme-secret-key
+    depends_on:
+      - db
+      - ai-server
+    restart: always
 
 volumes:
   postgres_data:

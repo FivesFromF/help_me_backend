@@ -1,0 +1,122 @@
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+model Citizen {
+  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cognitoId           String           @unique @map("cognito_id")
+  email               String           @unique
+  fullName            String           @default("") @map("full_name")
+  phone               String?
+  avatarUrl           String?          @map("avatar_url")
+  dateOfBirth         DateTime?        @map("date_of_birth") @db.Date
+  gender              String?
+  address             String?
+  cccdNumber          String?          @unique @map("cccd_number")
+  faceEmbedding       Unsupported("vector(512)")? @map("face_embedding")
+  emergencyContacts   Json?            @map("emergency_contacts")
+  isProfileUpdated    Boolean          @default(false) @map("is_profile_updated")
+  isVerified          Boolean          @default(false) @map("is_verified")
+  firstDeclareProfile Boolean          @default(false) @map("first_declare_profile")
+  consentRegulation   Boolean          @default(false) @map("consent_regulation")
+  createdAt           DateTime?        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime?        @default(now()) @map("updated_at") @db.Timestamptz
+
+  medicalRecord       MedicalRecord?
+  nfcTags             NfcTag[]
+  qrCodes             QrCode[]
+  emergencyReports    EmergencyReport[]
+
+  @@map("citizens")
+}
+
+model Staff {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cognitoId    String            @unique @map("cognito_id")
+  email        String            @unique
+  fullName     String            @map("full_name")
+  phone        String?
+  avatarUrl    String?           @map("avatar_url")
+  hospitalName String            @map("hospital_name")
+  department   String?
+  status       String            @default("active")
+  createdAt    DateTime?         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime?         @default(now()) @map("updated_at") @db.Timestamptz
+
+  reports      EmergencyReport[]
+
+  @@map("staff")
+}
+
+model Admin {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cognitoId String    @unique @map("cognito_id")
+  email     String    @unique
+  fullName  String    @map("full_name")
+  avatarUrl String?   @map("avatar_url")
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime? @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@map("admins")
+}
+
+model MedicalRecord {
+  citizenId          String    @id @map("citizen_id") @db.Uuid
+  citizen            Citizen   @relation(fields: [citizenId], references: [id], onDelete: Cascade)
+  distinguishingMarks String?  @map("distinguishing_marks")
+  bloodGroup         String?   @map("blood_group")
+  allergies          String[]  @default([])
+  backgroundDiseases String[]  @default([]) @map("background_diseases")
+  currentMedications String[]  @default([]) @map("current_medications")
+  notes              String?
+  lastUpdated        DateTime? @default(now()) @map("last_updated") @db.Timestamptz
+
+  @@map("medical_records")
+}
+
+model NfcTag {
+  id           String    @id
+  name         String?
+  status       String    @default("INACTIVE")
+  citizenId    String    @map("citizen_id") @db.Uuid
+  citizen      Citizen   @relation(fields: [citizenId], references: [id], onDelete: Cascade)
+  registeredAt DateTime? @default(now()) @map("registered_at") @db.Timestamptz
+  lastUsedAt   DateTime? @map("last_used_at") @db.Timestamptz
+
+  @@map("nfc_tags")
+}
+
+model QrCode {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String?
+  status     String    @default("INACTIVE")
+  citizenId  String    @map("citizen_id") @db.Uuid
+  citizen    Citizen   @relation(fields: [citizenId], references: [id], onDelete: Cascade)
+  createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamptz
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz
+
+  @@map("qr_codes")
+}
+
+model EmergencyReport {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reporterId           String?   @map("reporter_id") @db.Uuid
+  reporter             Staff?    @relation(fields: [reporterId], references: [id])
+  victimId             String?   @map("victim_id") @db.Uuid
+  victim               Citizen?  @relation(fields: [victimId], references: [id])
+  locationLat          String    @map("location_lat")
+  locationLon          String    @map("location_lon")
+  situationDescription String?   @map("situation_description")
+  status               String    @default("PENDING")
+  createdAt            DateTime? @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime? @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@map("emergency_reports")
+}

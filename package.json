@@ -1,0 +1,60 @@
+{
+  "name": "help_me_backend",
+  "version": "1.0.0",
+  "description": "HelpMe Emergency Assistance and Healthcare Identification Backend",
+  "main": "dist/services/write-server/index.js",
+  "scripts": {
+    "build": "prisma generate && tsc && node build.js",
+    "build:server": "tsc",
+    "build:lambdas": "node build.js",
+    "prisma:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio",
+    "start:write": "tsx src/services/write-server/index.ts",
+    "start:read": "tsx src/services/read-server/index.ts",
+    "dev:write": "tsx watch src/services/write-server/index.ts",
+    "dev:read": "tsx watch src/services/read-server/index.ts",
+    "test": "tsx test/test-pipeline.ts",
+    "test:local": "tsx test/test-pipeline.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.758.0",
+    "@aws-sdk/client-dynamodb": "^3.758.0",
+    "@aws-sdk/client-eventbridge": "^3.758.0",
+    "@aws-sdk/client-lambda": "^3.1111.0",
+    "@aws-sdk/client-s3": "^3.758.0",
+    "@aws-sdk/client-sqs": "^3.1113.0",
+    "@aws-sdk/lib-dynamodb": "^3.758.0",
+    "@aws-sdk/s3-request-presigner": "^3.758.0",
+    "@prisma/client": "^6.19.3",
+    "aws-jwt-verify": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "morgan": "^1.10.0",
+    "nodemailer": "^6.10.0",
+    "pg": "^8.13.3"
+  },
+  "devDependencies": {
+    "@types/archiver": "^6.0.3",
+    "@types/aws-lambda": "^8.10.147",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/morgan": "^1.9.9",
+    "@types/node": "^22.13.8",
+    "@types/nodemailer": "^6.4.17",
+    "@types/pg": "^8.11.11",
+    "archiver": "^7.0.1",
+    "dotenv-cli": "^11.0.0",
+    "esbuild": "^0.25.0",
+    "prisma": "^6.19.3",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}
