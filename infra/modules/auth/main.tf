@@ -7,8 +7,7 @@ resource "aws_cognito_user_pool" "pool" {
 
   # Lambda Triggers
   lambda_config {
-    post_confirmation  = var.post_confirmation_lambda_arn
-    post_authentication = var.post_authentication_lambda_arn
+    post_confirmation = var.post_confirmation_lambda_arn
   }
 
   # Password policy for MVP
@@ -126,12 +125,6 @@ variable "google_client_secret" {
 
 # Post Confirmation Lambda ARN (from lambda module)
 variable "post_confirmation_lambda_arn" {
-  type    = string
-  default = ""
-}
-
-# Post Authentication Lambda ARN (from lambda module)
-variable "post_authentication_lambda_arn" {
   type    = string
   default = ""
 }

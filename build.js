@@ -14,7 +14,6 @@ const functions = [
   { name: "grant-permission-worker", entry: "grant-permission-worker/handler.ts", zipNames: ["grant_permission_worker.zip"], destDirs: [lambdaModuleDir] },
   { name: "notification-worker", entry: "notification-worker/handler.ts", zipNames: ["notification_worker.zip"], destDirs: [lambdaModuleDir] },
   { name: "post-confirmation", entry: "post-confirmation/handler.ts", zipNames: ["post_confirmation.zip"], destDirs: [lambdaModuleDir] },
-  { name: "post-authentication", entry: "post-authentication/handler.ts", zipNames: ["post_authentication.zip"], destDirs: [lambdaModuleDir] },
 ];
 
 function zipDirectory(sourceDir, outPath) {

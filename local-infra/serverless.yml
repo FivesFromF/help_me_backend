@@ -95,14 +95,6 @@ functions:
           method: POST
           path: /test/post-confirmation
 
-  # ── Triggered by Cognito on every successful sign-in
-  postAuthentication:
-    handler: ../dist/post-authentication/index.main
-    events:
-      - http:
-          method: POST
-          path: /test/post-authentication
-
   # ── Triggered by EMERGENCY_BUS: audit all events to DynamoDB
   auditWorker:
     handler: ../dist/audit-worker/index.main

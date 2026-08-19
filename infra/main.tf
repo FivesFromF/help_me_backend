@@ -81,7 +81,6 @@ module "auth" {
   google_client_secret = var.google_client_secret
 
   post_confirmation_lambda_arn  = module.lambda.post_confirmation_lambda_arn
-  post_authentication_lambda_arn = module.lambda.post_authentication_lambda_arn
 }
 
 module "s3" {

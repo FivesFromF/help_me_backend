@@ -65,7 +65,6 @@ Every critical security event, user state change, and emergency action is captur
 | Event Name | Bus | Trigger Condition | Source |
 |---|---|---|---|
 | **`user.signed_up`** | `CORE_SYSTEM_BUS` | Cognito `post-confirmation` trigger creates new DB profile | `helpme.cognito` |
-| **`user.signed_in`** | `CORE_SYSTEM_BUS` | Cognito `post-authentication` trigger on successful login | `helpme.cognito` |
 | **`user.consent_accepted`** | `CORE_SYSTEM_BUS` | Citizen updates profile with `consentRegulation: true` | `helpme.backend` |
 | **`citizen.profile.updated`** | `CORE_SYSTEM_BUS` | Citizen updates general profile fields | `helpme.backend` |
 | **`medical_record.updated`** | `CORE_SYSTEM_BUS` | Medical record created or modified | `helpme.backend` |
@@ -80,7 +79,6 @@ Every critical security event, user state change, and emergency action is captur
 ## ⚡ 4. Lambda Triggers
 
 1. **`post-confirmation`**: Auto-assigns new users to the `Citizens` Cognito group and inserts an initial record into PostgreSQL `citizens` table, then emits `user.signed_up`.
-2. **`post-authentication`**: Emits `user.signed_in` to the system event bus for every login session.
-3. **`audit-worker`**: Subscribes to `CORE_SYSTEM_BUS` and `EMERGENCY_BUS` and persists every event to `helpme-audit-logs`.
-4. **`grant-permission-worker`**: Subscribes to `victim.identified` on `EMERGENCY_BUS` and creates a 1-hour temporary access token in `helpme-access-sessions`.
-5. **`notification-worker`**: Subscribes to `victim.identified` and dispatches automated email alerts to the citizen's emergency contacts.
+2. **`audit-worker`**: Subscribes to `CORE_SYSTEM_BUS` and `EMERGENCY_BUS` and persists every event to `helpme-audit-logs`.
+3. **`grant-permission-worker`**: Subscribes to `victim.identified` on `EMERGENCY_BUS` and creates a 1-hour temporary access token in `helpme-access-sessions`.
+4. **`notification-worker`**: Subscribes to `victim.identified` and dispatches automated email alerts to the citizen's emergency contacts.
