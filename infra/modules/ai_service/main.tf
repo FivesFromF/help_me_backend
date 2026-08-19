@@ -14,21 +14,14 @@ resource "aws_ecr_repository" "ai" {
   }
 }
 
-# --- Security Group ---
+# --- Security Group for AI Worker (Egress Only) ---
 resource "aws_security_group" "ai_tasks" {
   name        = "${var.project_name}-ecs-ai-sg"
-  description = "Security group for ECS AI tasks"
+  description = "Security group for ECS AI background worker tasks"
   vpc_id      = var.vpc_id
 
-  ingress {
-    from_port = 8000
-    to_port   = 8000
-    protocol  = "tcp"
-    # STRICT ACCESS: Only allows traffic from the Backend Security Group
-    security_groups = [var.app_tasks_sg_id]
-  }
-
   egress {
+    description = "Allow all outbound traffic to SQS, S3, DynamoDB, EventBridge, and RDS"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -116,7 +109,7 @@ resource "aws_cloudwatch_log_group" "ai" {
   }
 }
 
-# --- ECS Task Definition (STANDARD Mode) ---
+# --- ECS Task Definition (Pure SQS Worker) ---
 resource "aws_ecs_task_definition" "ai" {
   family                   = "${var.project_name}-ai"
   network_mode             = "awsvpc"
@@ -129,11 +122,6 @@ resource "aws_ecs_task_definition" "ai" {
   container_definitions = jsonencode([{
     name  = "ai-app"
     image = "${aws_ecr_repository.ai.repository_url}:latest"
-    portMappings = [{
-      containerPort = 8000
-      hostPort      = 8000
-      protocol      = "tcp"
-    }]
     logConfiguration = {
       logDriver = "awslogs"
       options = {
@@ -159,7 +147,7 @@ resource "aws_ecs_task_definition" "ai" {
   }
 }
 
-# --- ECS Service with Service Discovery ---
+# --- ECS Service ---
 resource "aws_ecs_service" "ai" {
   name            = "${var.project_name}-ai-service"
   cluster         = var.cluster_id
@@ -173,32 +161,8 @@ resource "aws_ecs_service" "ai" {
     assign_public_ip = true
   }
 
-  service_registries {
-    registry_arn = aws_service_discovery_service.ai.arn
-  }
-
   tags = {
     Project = "HelpMe"
-  }
-}
-
-# --- Cloud Map Service Registration ---
-resource "aws_service_discovery_service" "ai" {
-  name = "ai" # Resulting DNS: ai.helpme.local
-
-  dns_config {
-    namespace_id = var.service_discovery_namespace_id
-
-    dns_records {
-      ttl  = 60
-      type = "A"
-    }
-
-    routing_policy = "MULTIVALUE"
-  }
-
-  health_check_custom_config {
-    failure_threshold = 1
   }
 }
 
@@ -213,7 +177,6 @@ variable "execution_role_name" {
   default = ""
 }
 variable "cluster_id" {}
-variable "service_discovery_namespace_id" {}
 
 # Queue & Storage Integration
 variable "queue_url" {

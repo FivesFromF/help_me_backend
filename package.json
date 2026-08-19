@@ -17,7 +17,8 @@
     "dev:write": "tsx watch src/services/write-server/index.ts",
     "dev:read": "tsx watch src/services/read-server/index.ts",
     "test": "tsx test/test-pipeline.ts",
-    "test:local": "tsx test/test-pipeline.ts"
+    "test:local": "tsx test/test-pipeline.ts",
+    "test:ai": "pytest test/ai-test -v"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

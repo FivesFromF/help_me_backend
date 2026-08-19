@@ -19,10 +19,6 @@ services:
       context: src/services/ai-server
       dockerfile: Dockerfile
     container_name: helpme-ai-server
-    ports:
-      - "8000:8000"
-    environment:
-      - PORT=8000
     restart: always
 
   write-server:
@@ -35,11 +31,9 @@ services:
     environment:
       - PORT=8080
       - DATABASE_URL=postgres://postgres:password@db:5432/helpme
-      - AI_SERVICE_URL=http://ai-server:8000
       - SYSTEM_SECRET=helpme-secret-key
     depends_on:
       - db
-      - ai-server
     restart: always
 
   read-server:
@@ -52,11 +46,9 @@ services:
     environment:
       - PORT=8081
       - DATABASE_URL=postgres://postgres:password@db:5432/helpme
-      - AI_SERVICE_URL=http://ai-server:8000
       - SYSTEM_SECRET=helpme-secret-key
     depends_on:
       - db
-      - ai-server
     restart: always
 
 volumes:

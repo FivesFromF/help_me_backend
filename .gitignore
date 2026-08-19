@@ -44,3 +44,4 @@ venv/
 ENV/
 node_modules/
 dist/
+.pytest_cache/

@@ -18,9 +18,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy all source code and model files from the cmd/ai-server directory
 COPY . .
 
-# Expose the FastAPI port
-EXPOSE 8000
-
 # Set environment variables for reproducibility
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1

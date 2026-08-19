@@ -104,7 +104,6 @@ module "ai_service" {
   app_tasks_sg_id                = module.ecs.app_tasks_sg_id
   execution_role_arn             = module.ecs.execution_role_arn
   cluster_id                     = module.ecs.cluster_id
-  service_discovery_namespace_id = module.vpc.service_discovery_namespace_id
 
   # Queue & Storage Integration
   queue_url            = module.sqs.queue_url
