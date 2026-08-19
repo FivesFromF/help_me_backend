@@ -34,6 +34,43 @@ npx serverless offline start
 | **EventBridge Bus** | `serverless-offline-aws-eventbridge` | `http://localhost:4010` |
 | **Lambda Handlers** | `serverless-offline` | `http://localhost:3000` |
 
+### Pointing the app at the emulators
+
+Each emulator listens on its **own** port, so a single generic endpoint cannot serve all of them.
+`.env` must set one variable per service:
+
+```bash
+EVENTBRIDGE_ENDPOINT="http://localhost:4010"
+S3_ENDPOINT="http://localhost:4569"
+DYNAMODB_ENDPOINT="http://localhost:8001"
+```
+
+> **Do not set `AWS_ENDPOINT_URL=http://localhost:4566`.** `:4566` is LocalStack's port, and this
+> project does not use LocalStack. Any client falling back to it fails with `ECONNREFUSED` — and
+> because event publishing is best-effort, the failure is logged but never changes an HTTP status,
+> so tests still pass while the whole event path is silently dead.
+>
+> `AWS_ENDPOINT_URL` remains supported as a fallback for all three services (and is what production
+> leaves unset), but the per-service variables take precedence.
+
+### ⚠️ Editing `.env` mid-session has no effect
+
+`dotenv.config()` does **not** overwrite a variable that is already present in `process.env`. Any
+shell that inherited `.env` at start-up keeps the old values for its whole lifetime, so an edit can
+look like it did nothing — for example a `ResourceNotFoundException` naming a DynamoDB table that
+demonstrably exists. Either restart the shell, or override for one command:
+
+```bash
+env -u ACCESS_SESSIONS_TABLE -u AWS_ENDPOINT_URL npm run test:api
+```
+
+### Table names
+
+`serverless.yml` provisions `helpme-scan-jobs`, `helpme-access-sessions` and `helpme-audit-logs`.
+Override them only with names that actually exist, and note that the audit worker reads
+**`AUDIT_TABLE_NAME`** — `AUDIT_LOGS_TABLE` is a leftover from the retired ECS stack and is read by
+nothing in `src/`.
+
 ---
 
 ## 🚀 Step 3: Start Microservices
@@ -47,8 +84,21 @@ npm run dev:write
 
 ### Terminal 2: Read Server (`:8081`)
 ```bash
-npm run dev:read
+npm run start:read
 ```
+(There is no `dev:read` script — only the write server has a watch mode, `npm run dev:write`.)
+
+### Or: run both servers in Docker
+```bash
+docker compose up -d --build write-server read-server
+```
+Their Dockerfiles copy `prisma/` and run `prisma generate` during the build. If you strip that out,
+the image starts and immediately dies with
+`@prisma/client did not initialize yet` — note that `npm run build:server` is `tsc` alone, whereas
+`npm run build` is `prisma generate && tsc && node build.js`.
+
+Containers do **not** receive `SKIP_AUTH`, so they enforce real authentication and reject header
+auth: expect `401` where the in-process test suite returns `404`.
 
 ### Terminal 3: AI Service & SQS Background Worker
 ```bash
@@ -59,7 +109,21 @@ python main.py
 
 ---
 
-## 🧪 Step 4: Run AI Biometric Extraction & Matching Test
+## 🧪 Step 4: Run the API Test Suite
+
+```bash
+npm run test:api
+```
+
+Builds the read/write routers in-process on ephemeral ports and runs 18 checks against the local
+Postgres. It needs the database (Step 1); the emulators (Step 2) are only required if you want the
+event path to actually reach the workers.
+
+The full catalogue of expected status codes per endpoint is `test/api-test/README.md`.
+
+---
+
+## 🧬 Step 5: Run AI Biometric Extraction & Matching Test
 
 Test the AI biometric pipeline (MediaPipe $\rightarrow$ Anti-Spoof $\rightarrow$ EdgeFace) with real face images:
 

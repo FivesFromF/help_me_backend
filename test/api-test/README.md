@@ -1,7 +1,170 @@
-workflow to simplify the api test:
+# HelpMe API Test Cases
 
-1. register new user --> check the audit logs whether it has the log for user sign in yet?
-2. register the health info
-3. register face --> should return presigned url for user to upload avatar
-4. update user info
-5. update face
+API-level test cases only — HTTP request in, status + body out. Worker, AI-model and
+infrastructure behaviour is out of scope here.
+
+Run: `npm run test:api` (in-process Express apps on ephemeral ports; no containers needed).
+
+## Conventions
+
+- **Auth (local):** `SKIP_AUTH=true` lets tests authenticate with headers instead of a Cognito JWT:
+  `x-cognito-id: <cognitoId>` and `x-role: citizen | staff | admin`.
+  Missing/invalid identity → **401**. Valid identity, wrong role → **403**.
+- **Path aliases:** every route below is also registered under `/api/v1/<service>/…` and
+  `/api/v1/…`. These cases use the short `/api/…` form.
+- **Seeding:** the runner creates a citizen row via Prisma before the suite, and deletes it
+  (plus NFC tags, medical records, emergency reports) afterwards.
+
+---
+
+## 1. Registration workflow
+
+The original workflow this file described, corrected against the implementation.
+
+| ID | Step | Method | Path | Role | Expect |
+| :-- | :-- | :-- | :-- | :-- | :-- |
+| W-01 | Register new user | — | *no HTTP route* | — | See note A |
+| W-02 | Register health info | PUT | `/api/citizen/medical-record` | citizen | **200** `{ record }` |
+| W-03 | Get avatar upload URL | POST | `/api/upload-url` | citizen, admin | **200** `{ jobId, uploadUrl, s3Key, expiresIn }` |
+| W-04 | Register face | POST | `/api/citizen/face` | citizen | **200** `{ success, message }` — see note B |
+| W-05 | Update user info | PUT | `/api/citizen/profile` | citizen | **200** |
+| W-06 | Update face (re-register) | POST | `/api/citizen/face` | citizen | **200**, overwrites `face_embedding` |
+
+**Note A — registration has no API endpoint.** Users are created by the Cognito
+`post-confirmation` trigger (`src/functions/post-confirmation`), which adds the user to the
+`Citizens` group and inserts the `citizens` row. It cannot be exercised over HTTP, so the suite
+seeds the row directly with Prisma.
+
+**Note B — face registration does not return a presigned URL.** `POST /api/citizen/face` takes
+`{ imageBase64 }`, extracts the 512-d embedding synchronously, and returns
+`{ success, message }`. The presigned upload URL comes from the separate `POST /api/upload-url`
+(W-03), which returns a `jobId` for async processing. They are two distinct steps.
+
+**Note C — there is no sign-in audit log.** The post-authentication trigger and the sign-in /
+sign-out audit rules were removed in commit `b7d78ab`. Audit entries exist only for the domain
+events in §8, so asserting on a "user signed in" record will always fail.
+
+---
+
+## 2. Health
+
+| ID | Method | Path | Expect |
+| :-- | :-- | :-- | :-- |
+| H-01 | GET | `/health` (write service) | **200** `{ status: "ok" }` |
+| H-02 | GET | `/health` (read service) | **200** `{ status: "ok" }` |
+
+## 3. Citizen — write
+
+| ID | Method | Path | Body / condition | Expect |
+| :-- | :-- | :-- | :-- | :-- |
+| CW-01 | PUT | `/api/citizen/profile` | full profile + `consentRegulation: true` | **200** |
+| CW-02 | PUT | `/api/citizen/profile` | no auth headers | **401** |
+| CW-03 | PUT | `/api/citizen/profile` | `x-role: staff` | **200** — see note D |
+| CW-03b | PUT | `/api/citizen/profile` | `x-role: admin` | **403** (route is citizen-only) |
+| CW-04 | PUT | `/api/citizen/medical-record` | `bloodGroup`, `allergies[]`, `backgroundDiseases[]`, `currentMedications[]`, `notes` | **200** `{ record }` |
+| CW-05 | PUT | `/api/citizen/medical-record` | citizen row absent | **404** `Citizen profile not found` |
+| CW-06 | POST | `/api/citizen/face` | `{ imageBase64 }` | **200** |
+| CW-07 | POST | `/api/citizen/face` | body without `imageBase64` | **400** `Missing imageBase64 in request body` |
+
+`allergies`, `backgroundDiseases` and `currentMedications` default to `[]` when omitted, so a
+minimal `{}` body is still a valid 200 — assert on the returned `record`, not just the status.
+
+**Note D — there is no `staff` role at runtime.** `extractRole` in
+`src/shared/middleware/auth.ts` returns only `"citizen" | "admin"`: anything that is not
+`admin`/`admins` falls through to `citizen`. So `x-role: staff` (and any unknown group) is treated
+as a citizen and passes `requireRole(["citizen"])` — CW-03 returns **200**, not 403. This is a
+fail-open default and disagrees with the three-role model (citizen / staff / admin) used by
+`CLAUDE.md` and the Flutter app. Verified 2026-08-20. To assert a real rejection, use
+`x-role: admin` against a citizen-only route (CW-03b).
+
+## 4. Citizen — read
+
+| ID | Method | Path | Condition | Expect |
+| :-- | :-- | :-- | :-- | :-- |
+| CR-01 | GET | `/api/citizen/profile` | seeded citizen | **200** `{ profile }` |
+| CR-02 | GET | `/api/citizen/profile` | unknown `x-cognito-id` | **404** `Profile not found` |
+| CR-03 | GET | `/api/citizen/medical-record` | record exists | **200** `{ record }` |
+| CR-04 | GET | `/api/citizen/medical-record` | citizen exists, no record | **200** `{ record: {} }` |
+| CR-05 | GET | `/api/citizen/nfc-tags` | — | **200** `{ tags: [...] }` |
+
+CR-04 is the easy one to get wrong: a missing *record* is **200 with an empty object**, not 404.
+Only a missing *citizen* is 404.
+
+## 5. NFC
+
+| ID | Method | Path | Body / condition | Expect |
+| :-- | :-- | :-- | :-- | :-- |
+| N-01 | POST | `/api/nfc` | `{ tagId, name }` as citizen | **200** `{ tagId, hashId }` |
+| N-02 | POST | `/api/nfc` | body without `tagId` | **400** `Missing tagId (serial number)` |
+| N-03 | POST | `/api/nfc` | admin without `citizenId` | **400** `Missing citizenId` |
+| N-04 | POST | `/api/nfc` | admin, `citizenId` not in DB | **500** — see note E (should be 404) |
+| N-05 | POST | `/api/nfc` | already-registered `tagId` | **200**, re-registers rather than duplicating |
+
+**Note E — an admin-supplied `citizenId` is never validated.** The `Citizen profile not found`
+404 lives inside the `role === "citizen"` branch only (`src/services/write-server/routes/nfc.routes.ts`).
+When an admin posts a `citizenId` that does not exist, the handler goes straight to
+`prisma.nfcTag.upsert`, violates the foreign key, and returns **500** with a
+`PrismaClientKnownRequestError`. N-04 documents the behaviour as it is; a 404 would be correct.
+Verified 2026-08-20.
+
+## 6. Scan
+
+| ID | Method | Path | Body / condition | Expect |
+| :-- | :-- | :-- | :-- | :-- |
+| S-01 | POST | `/api/scan` | `{ method: "NFC", tagId, hashId }`, valid HMAC | **200** victim + medical record |
+| S-02 | POST | `/api/scan` | tampered `hashId` | **403** `Invalid hash signature` |
+| S-03 | POST | `/api/scan` | NFC without `tagId` / `hashId` | **400** |
+| S-04 | POST | `/api/scan` | unknown or inactive tag | **404** `Tag not found or inactive` |
+| S-05 | POST | `/api/scan` | `{ method: "FACE" }` without `imageBase64` | **400** |
+| S-06 | POST | `/api/scan` | `{ method: "QR" }` | **400** `Unsupported scan method` |
+| S-07 | GET | `/api/scan/jobs/:jobId` | unknown job id | **404** `Job not found` |
+
+## 7. Victim access
+
+| ID | Method | Path | Condition | Expect |
+| :-- | :-- | :-- | :-- | :-- |
+| V-01 | GET | `/api/victim/:victimId` | no active session | **403** |
+| V-02 | GET | `/api/victim/:victimId` | active session row present | **200** `{ citizen, record }` |
+| V-03 | GET | `/api/victim/:victimId` | session row expired (`expires_at` in the past) | **403** |
+| V-04 | GET | `/api/victim/:victimId` | active session, victim not in DB | **404** |
+
+**V-01 needs care.** `hasActiveSession` denies on *any* DynamoDB error, so if the
+`access-sessions` table is missing, V-01 passes for the wrong reason. Pair it with V-02 and V-03 —
+only the trio proves authorization actually works. A successful S-01 is what grants the session
+V-02 depends on.
+
+## 8. Emergency
+
+| ID | Method | Path | Body / condition | Expect |
+| :-- | :-- | :-- | :-- | :-- |
+| E-01 | POST | `/api/emergency/report` | `{ locationLat, locationLon, situationDescription, victimId? }` | **201** `{ report }` |
+| E-02 | POST | `/api/emergency/report` | missing `locationLat` or `locationLon` | **400** `Missing location coordinates` |
+
+`victimId` is optional — an anonymous report (`victimId: null`) is still a valid 201.
+
+## 9. Events emitted (assert only if the workers are running)
+
+Publishing is best-effort: a failed publish is logged and never changes the HTTP status, so these
+cannot be asserted from the response alone.
+
+| Endpoint | Event | Bus |
+| :-- | :-- | :-- |
+| PUT `/api/citizen/profile` | `citizen.profile.updated`, `user.consent_accepted` | system |
+| PUT `/api/citizen/medical-record` | `medical_record.updated` | system |
+| POST `/api/citizen/face` | `citizen.face.registered` | system |
+| POST `/api/nfc` | `nfc.registered` | system |
+| POST `/api/emergency/report` | `emergency.reported` | system |
+| POST `/api/scan` (success) | `victim.identified` | emergency |
+| GET `/api/victim/:victimId` (granted) | `victim.record.accessed` | system |
+
+## 10. Status code summary
+
+| Code | Meaning in this API |
+| :-- | :-- |
+| 200 | Success (note: medical record absent → `{ record: {} }`) |
+| 201 | Emergency report created — the only 201 |
+| 400 | Missing or invalid field in the body |
+| 401 | No or invalid authentication |
+| 403 | Wrong role, bad hash signature, or no active access session |
+| 404 | Citizen / tag / job / victim not found |
+| 500 | Unhandled error (AI service down, DB unreachable) |

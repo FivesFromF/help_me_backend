@@ -34,6 +34,22 @@ Route handlers enforce role permissions using the `requireRole(["citizen" | "adm
 - Returns `401 Unauthorized` if `req.auth` is missing.
 - Returns `403 Forbidden` if `req.auth.role` is not in the allowed list.
 
+> **⚠️ There is no `staff` role at runtime — unknown groups fail open to `citizen`.**
+> `extractRole` resolves a Cognito group list to `"citizen" | "admin"` only:
+>
+> ```ts
+> function extractRole(groups: string[]): "citizen" | "admin" {
+>   if (groups.some((g) => g.toLowerCase() === "admin" || g.toLowerCase() === "admins")) return "admin";
+>   return "citizen";   // every other group — including "staff" — lands here
+> }
+> ```
+>
+> A member of a `Staff` group is therefore treated as a citizen and is admitted to every
+> `requireRole(["citizen"])` route. This contradicts the three-role model (citizen / staff / admin)
+> described in `CLAUDE.md` and implemented in the Flutter app's sign-in flows. Verified 2026-08-20
+> — `x-role: staff` on `PUT /api/citizen/profile` returns `200`, not `403`.
+> Closing this gap is a product decision (which endpoints staff may reach), not just a code fix.
+
 ---
 
 ## 📝 2. Platform Audit Trail (EventBridge & DynamoDB)

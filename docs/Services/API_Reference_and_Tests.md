@@ -12,6 +12,15 @@ To execute all automated API tests against the local database and microservice r
 npm run test:api
 ```
 
+The suite lives in `test/api-test/` — `index.ts` seeds a citizen and runs the per-domain files
+(`citizen.api.test.ts`, `nfc_scan.api.test.ts`, `emergency.api.test.ts`), then tears the data down.
+It builds the Express routers in-process on ephemeral ports, so no containers are required.
+
+**The full test-case catalog is `test/api-test/README.md`** — around 40 cases covering every route,
+including the ones the automated runner does not yet execute (role rejection, expired sessions,
+absent-record vs. absent-citizen, unknown tags). Keep that file as the source of truth for expected
+status codes; the table at the bottom of this document lists only the 18 that run today.
+
 ---
 
 ## 📝 1. Write Server Endpoints (`http://localhost:8080`)
@@ -283,7 +292,19 @@ npm run test:api
 
 ---
 
-## 📊 Summary of Test Suites in `test/test_api_endpoints.ts`
+## ⚠️ Known Behaviour Gaps (verified 2026-08-20)
+
+Two endpoints do not behave the way this reference otherwise implies. Both are documented in
+`test/api-test/README.md` (notes D and E) so tests written against them pass today.
+
+| Area | Documented intent | Actual behaviour |
+|---|---|---|
+| **Role model** | citizen / staff / admin | `extractRole` (`src/shared/middleware/auth.ts`) returns only `"citizen" \| "admin"`; every group that is not `admin`/`admins` — including `staff` — falls through to `citizen` and passes `requireRole(["citizen"])`. Fail-open by default. |
+| **`POST /api/nfc` as admin** | `404` when `citizenId` does not exist | The "Citizen profile not found" check only runs in the `role === "citizen"` branch, so an admin-supplied `citizenId` reaches `prisma.nfcTag.upsert`, violates the foreign key, and returns `500`. |
+
+---
+
+## 📊 Summary of Test Suites in `test/api-test/`
 
 | # | Endpoint | Method | Suite | Expected | Verified Behavior |
 |---|---|---|---|---|---|

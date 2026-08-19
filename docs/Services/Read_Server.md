@@ -2,7 +2,7 @@
 
 - **Runtime**: Node.js 20+ / TypeScript
 - **Port**: `8081` (or `PORT` environment variable)
-- **Start Script**: `npm run start:read` or `npm run dev:read`
+- **Start Script**: `npm run start:read` (there is no `dev:read` watch script)
 - **Entry Point**: `src/services/read-server/index.ts`
 
 ---

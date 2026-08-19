@@ -85,7 +85,7 @@ npx serverless offline start
 npm run dev:write
 
 # Terminal 2
-npm run dev:read
+npm run start:read
 
 # Terminal 3
 cd src/services/ai-server && python main.py
