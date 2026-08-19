@@ -36,4 +36,5 @@ The backend uses a **CQRS (Command Query Responsibility Segregation)** pattern d
 - [[Services/Write_Server|Write Server (Port 8080)]]
 - [[Services/Read_Server|Read Server (Port 8081)]]
 - [[Services/AI_Server|AI Service (SQS Worker)]]
+- [[Services/API_Reference_and_Tests|Complete API Reference & Test Catalog]]
 - [[Runbooks/Local_Testing|Local Development & Emulation Guide]]
