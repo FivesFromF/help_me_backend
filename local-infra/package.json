@@ -1,0 +1,17 @@
+{
+  "name": "helpme-local-infra",
+  "version": "1.0.0",
+  "description": "Serverless Offline Local Infrastructure for HelpMe Backend (S3 + DynamoDB + SQS + EventBridge)",
+  "scripts": {
+    "start": "serverless offline start",
+    "offline": "serverless offline start"
+  },
+  "devDependencies": {
+    "serverless": "^3.38.0",
+    "serverless-offline": "^13.3.4",
+    "serverless-s3-local": "^0.8.1",
+    "serverless-dynamodb": "^0.2.53",
+    "serverless-offline-sqs": "^9.0.1",
+    "serverless-offline-aws-eventbridge": "^2.2.4"
+  }
+}

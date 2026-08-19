@@ -1,0 +1,213 @@
+service: helpme-local-infra
+frameworkVersion: '3'
+
+# ─────────────────────────────────────────────────────────
+# PROVIDER
+# All AWS SDK calls from Lambda handlers will be redirected
+# to the local emulators via environment variables below.
+# ─────────────────────────────────────────────────────────
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ap-southeast-1
+  stage: local
+  environment:
+    # --- Routing all AWS SDK clients to local emulators ---
+    AWS_ENDPOINT_URL: http://localhost:4566          # SQS + EventBridge + DynamoDB (via serverless-offline-sqs & eventBridge)
+    DYNAMODB_ENDPOINT: http://localhost:8001         # serverless-dynamodb local port
+    AWS_ACCESS_KEY_ID: test
+    AWS_SECRET_ACCESS_KEY: test
+    AWS_REGION: ap-southeast-1
+
+    # --- Application config ---
+    DATABASE_URL: ${env:DATABASE_URL, "postgres://postgres:password@localhost:5432/helpme"}
+    SCAN_JOBS_TABLE: helpme-scan-jobs
+    ACCESS_SESSIONS_TABLE: helpme-access-sessions
+    AUDIT_TABLE_NAME: helpme-audit-logs
+    AWS_S3_BUCKET: helpme-avatars-local
+    CORE_SYSTEM_BUS_NAME: helpme-system-bus
+    EMERGENCY_BUS_NAME: helpme-emergency-bus
+    AI_JOBS_QUEUE_URL: http://localhost:9324/queue/helpme-ai-jobs-queue
+    SYSTEM_SECRET: helpme-secret-key
+    SMTP_HOST: localhost
+    SMTP_PORT: "1025"
+
+# ─────────────────────────────────────────────────────────
+# PLUGINS
+# ─────────────────────────────────────────────────────────
+plugins:
+  - serverless-offline            # HTTP Lambda invocation
+  - serverless-s3-local           # Local S3 bucket emulator on :4569
+  - serverless-dynamodb           # Local DynamoDB on :8001
+  - serverless-offline-sqs        # Local SQS (ElasticMQ) on :9324
+  - serverless-offline-aws-eventbridge # Local EventBridge on :4010
+
+# ─────────────────────────────────────────────────────────
+# CUSTOM PLUGIN CONFIG
+# ─────────────────────────────────────────────────────────
+custom:
+  serverless-offline:
+    httpPort: 3000
+    noPrependStageInUrl: true
+
+  # serverless-s3-local: emulates the avatars S3 bucket
+  s3:
+    host: 0.0.0.0
+    port: 4569
+    directory: ./.local-s3        # files are stored here on disk
+    cors: false
+    allowMismatchedSignatures: true
+    buckets:
+      - helpme-avatars-local
+
+  # serverless-dynamodb: spins up DynamoDB Local (Java-free, in-memory)
+  dynamodb:
+    stages:
+      - local
+    start:
+      port: 8001
+      inMemory: true
+      migrate: true               # auto-creates tables from resources section
+
+  # serverless-offline-sqs: uses ElasticMQ under the hood (no AWS cost)
+  serverless-offline-sqs:
+    autoCreate: true              # auto-creates queues on startup
+    apiVersion: "2012-11-05"
+    endpoint: http://0.0.0.0:9324
+    region: ap-southeast-1
+    accessKeyId: test
+    secretAccessKey: test
+
+  # serverless-offline-eventBridge: intercepts PutEvents and routes to matching Lambda functions
+  eventBridge:
+    pubSubPort: 4010              # EventBridge publisher/subscriber port
+    mockEventBridgePort: 4010
+
+# ─────────────────────────────────────────────────────────
+# LAMBDA FUNCTIONS
+# ─────────────────────────────────────────────────────────
+functions:
+  # ── Triggered by Cognito on user signup (tested manually via HTTP)
+  postConfirmation:
+    handler: ../dist/post-confirmation/index.main
+    events:
+      - http:
+          method: POST
+          path: /test/post-confirmation
+
+  # ── Triggered by Cognito on every successful sign-in
+  postAuthentication:
+    handler: ../dist/post-authentication/index.main
+    events:
+      - http:
+          method: POST
+          path: /test/post-authentication
+
+  # ── Triggered by EMERGENCY_BUS: audit all events to DynamoDB
+  auditWorker:
+    handler: ../dist/audit-worker/index.main
+    events:
+      - eventBridge:
+          eventBus: helpme-emergency-bus
+          pattern:
+            source:
+              - helpme.backend
+              - helpme.ai-service
+      - eventBridge:
+          eventBus: helpme-system-bus
+          pattern:
+            source:
+              - helpme.backend
+
+  # ── Triggered by EMERGENCY_BUS: victim.identified → grant 1-hour DynamoDB session
+  grantPermissionWorker:
+    handler: ../dist/grant-permission-worker/index.main
+    events:
+      - eventBridge:
+          eventBus: helpme-emergency-bus
+          pattern:
+            source:
+              - helpme.backend
+              - helpme.ai-service
+            detail-type:
+              - victim.identified
+
+  # ── Triggered by EMERGENCY_BUS: victim.identified → email emergency contacts
+  notificationWorker:
+    handler: ../dist/notification-worker/index.main
+    events:
+      - eventBridge:
+          eventBus: helpme-emergency-bus
+          pattern:
+            source:
+              - helpme.backend
+              - helpme.ai-service
+            detail-type:
+              - victim.identified
+
+# ─────────────────────────────────────────────────────────
+# DYNAMODB TABLE DEFINITIONS (auto-provisioned locally)
+# ─────────────────────────────────────────────────────────
+resources:
+  Resources:
+    ScanJobsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: helpme-scan-jobs
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: job_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: job_id
+            KeyType: HASH
+        TimeToLiveSpecification:
+          AttributeName: expires_at
+          Enabled: true
+
+    AccessSessionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: helpme-access-sessions
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: session_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: session_id
+            KeyType: HASH
+        TimeToLiveSpecification:
+          AttributeName: expires_at
+          Enabled: true
+
+    AuditLogsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: helpme-audit-logs
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: actor_id
+            AttributeType: S
+          - AttributeName: timestamp
+            AttributeType: S
+        KeySchema:
+          - AttributeName: actor_id
+            KeyType: HASH
+          - AttributeName: timestamp
+            KeyType: RANGE
+
+    # SQS Queues (auto-created by serverless-offline-sqs if autoCreate: true)
+    AiJobsQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: helpme-ai-jobs-queue
+        VisibilityTimeout: 120
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt AiJobsDLQ.Arn
+          maxReceiveCount: 3
+
+    AiJobsDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: helpme-ai-jobs-dlq
+        MessageRetentionPeriod: 1209600
