@@ -59,22 +59,18 @@ python main.py
 
 ---
 
-## 🧪 Step 4: Run Automated End-to-End Test Suite
+## 🧪 Step 4: Run AI Biometric Extraction & Matching Test
 
-Run the full integration test suite from the root directory:
+Test the AI biometric pipeline (MediaPipe $\rightarrow$ Anti-Spoof $\rightarrow$ EdgeFace) with real face images:
 
 ```bash
-npm test
+# 1. Place test face photos in: test/ai-test/test-images/input/
+
+# 2. Extract 512-d embeddings to local database-temp.json:
+npm run test:ai
 # or
-npm run test:local
+python test/ai-test/process_images_to_json.py
+
+# 3. Match a query face photo and retrieve the Top 3 best matches + avatars:
+python test/ai-test/process_images_to_json.py --search "test/ai-test/test-images/input/good.png"
 ```
-
-### Test Coverage:
-1. **Health Checks**: Write (`:8080`) and Read (`:8081`) servers.
-2. **S3 Presigned Upload**: Upload dummy face scan to local S3.
-3. **SQS Event Dispatch**: Publish `ObjectCreated` message to `helpme-ai-jobs-queue`.
-4. **DynamoDB State**: Create and read back `PENDING` scan jobs.
-5. **EventBridge Routing**: Dispatch `victim.identified` event to `helpme-emergency-bus`.
-6. **Worker Side-Effects**: Verify `grantPermissionWorker` creates a 1-hour session.
-7. **Read Server Polling**: Query `GET /api/v1/read/scan/jobs/:jobId` via Express middleware.
-
