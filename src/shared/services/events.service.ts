@@ -1,6 +1,6 @@
 import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
 
-const endpoint = process.env.AWS_ENDPOINT_URL || process.env.LOCALSTACK_URL;
+const endpoint = process.env.EVENTBRIDGE_ENDPOINT || process.env.AWS_ENDPOINT_URL || process.env.LOCALSTACK_URL;
 const client = new EventBridgeClient({
   endpoint: endpoint || undefined,
   region: process.env.AWS_REGION || "ap-southeast-1",
