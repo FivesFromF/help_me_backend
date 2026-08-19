@@ -17,7 +17,8 @@
     "dev:write": "tsx watch src/services/write-server/index.ts",
     "test": "python test/ai-test/process_images_to_json.py",
     "test:ai": "python test/ai-test/process_images_to_json.py",
-    "test:api": "tsx test/api-test/index.ts"
+    "test:api": "tsx test/api-test/index.ts",
+    "ddb:admin": "cross-env DYNAMO_ENDPOINT=http://localhost:8001 dynamodb-admin -p 8002"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -51,7 +52,9 @@
     "@types/nodemailer": "^6.4.17",
     "@types/pg": "^8.11.11",
     "archiver": "^7.0.1",
+    "cross-env": "^10.1.0",
     "dotenv-cli": "^11.0.0",
+    "dynamodb-admin": "^5.3.3",
     "esbuild": "^0.25.0",
     "prisma": "^6.19.3",
     "tsx": "^4.19.3",
