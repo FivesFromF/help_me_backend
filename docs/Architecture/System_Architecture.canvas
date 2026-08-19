@@ -1,0 +1,24 @@
+{
+	"nodes":[
+		{"id":"group-storage-event","type":"group","x":960,"y":40,"width":340,"height":680,"color":"2","label":"Persistence & Async Bus"},
+		{"id":"group-api-layer","type":"group","x":140,"y":0,"width":320,"height":560,"color":"4","label":"API Services Layer"},
+		{"id":"group-clients","type":"group","x":-520,"y":40,"width":260,"height":420,"color":"5","label":"Client Applications"},
+		{"id":"node-mobile-citizen","type":"text","text":"### Citizen Mobile App\n- Emergency SOS\n- Profile & Medical Card\n- NFC Tag Management","x":-500,"y":100,"width":220,"height":140,"color":"5"},
+		{"id":"node-responder-app","type":"text","text":"### First Responder App\n- NFC / QR Scan\n- Camera Face Scan\n- Incident Dispatch","x":-500,"y":280,"width":220,"height":140,"color":"5"},
+		{"id":"node-write-server","type":"text","text":"### Write Server (:8080)\n- Express / TypeScript\n- Command mutations\n- JWT auth middleware\n- EventBridge publisher","x":170,"y":60,"width":260,"height":140,"color":"1"},
+		{"id":"node-read-server","type":"text","text":"### Read Server (:8081)\n- Express / TypeScript\n- Fast emergency lookups\n- Public QR/NFC resolving","x":170,"y":230,"width":260,"height":130,"color":"4"},
+		{"id":"node-ai-server","type":"text","text":"### AI Server (:8000)\n- Python / FastAPI\n- 512-d Face Embeddings\n- Biometric matching & OCR","x":170,"y":390,"width":260,"height":140,"color":"6"},
+		{"id":"node-postgres","type":"text","text":"### PostgreSQL + pgvector\n- Managed via Prisma ORM\n- Citizens, Medical Records\n- Biometric face vectors","x":990,"y":100,"width":280,"height":160,"color":"2"},
+		{"id":"node-eventbridge","type":"text","text":"### AWS EventBridge\n- `CORE_SYSTEM_BUS`\n- `EMERGENCY_BUS`","x":990,"y":290,"width":280,"height":120,"color":"3"},
+		{"id":"node-lambdas","type":"text","text":"### AWS Lambda Workers\n- `notification-worker`\n- `audit-worker`\n- `grant-permission-worker`","x":990,"y":530,"width":280,"height":130,"color":"3"}
+	],
+	"edges":[
+		{"id":"edge-citizen-write","fromNode":"node-mobile-citizen","fromSide":"right","toNode":"node-write-server","toSide":"left","label":"Mutations / Auth"},
+		{"id":"edge-responder-read","fromNode":"node-responder-app","fromSide":"right","toNode":"node-read-server","toSide":"left","label":"NFC / QR Scans"},
+		{"id":"edge-responder-ai","fromNode":"node-responder-app","fromSide":"right","toNode":"node-ai-server","toSide":"left","label":"Face Image Search"},
+		{"id":"edge-write-db","fromNode":"node-write-server","fromSide":"right","toNode":"node-postgres","toSide":"left","label":"Prisma writes"},
+		{"id":"edge-read-db","fromNode":"node-read-server","fromSide":"right","toNode":"node-postgres","toSide":"left","label":"Prisma reads"},
+		{"id":"edge-write-eventbridge","fromNode":"node-write-server","fromSide":"bottom","toNode":"node-eventbridge","toSide":"left","label":"Publish Domain Events"},
+		{"id":"edge-eventbridge-lambdas","fromNode":"node-eventbridge","fromSide":"bottom","toNode":"node-lambdas","toSide":"top","label":"Dispatch rules"}
+	]
+}

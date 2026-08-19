@@ -1,0 +1,47 @@
+{
+	"nodes": [
+		{"id": "group-clients-edge", "type": "group", "x": -620, "y": -40, "width": 360, "height": 840, "color": "5", "label": "Clients & External Integrations"},
+		{"id": "group-gateway-auth", "type": "group", "x": -210, "y": -40, "width": 390, "height": 840, "color": "4", "label": "Application Load Balancer & Auth"},
+		{"id": "group-ecs-compute", "type": "group", "x": 230, "y": -40, "width": 450, "height": 840, "color": "1", "label": "AWS ECS Fargate Cluster (VPC)"},
+		{"id": "group-serverless-events", "type": "group", "x": 730, "y": -40, "width": 450, "height": 840, "color": "3", "label": "EventBridge, SQS & Workers"},
+		{"id": "group-storage-persistence", "type": "group", "x": 1230, "y": -40, "width": 450, "height": 840, "color": "2", "label": "Data Persistence & Storage (Private Subnets)"},
+
+		{"id": "node-clients", "type": "text", "text": "### 📱 Mobile & Web Clients\n- **Citizen Mobile App** (SOS, Medical Card, NFC)\n- **First Responder App** (Face/NFC/QR Scan)\n- **Direct S3 Upload** (Presigned URLs)", "x": -590, "y": 30, "width": 300, "height": 160, "color": "5"},
+		{"id": "node-google-idp", "type": "text", "text": "### 🔐 Google Identity Provider\n- OAuth 2.0 / OpenID Connect\n- Citizen Social Authentication\n- Federated Token Exchange", "x": -590, "y": 230, "width": 300, "height": 130, "color": "6"},
+		{"id": "node-smtp", "type": "text", "text": "### 📧 SMTP / Mail Service\n- Emergency Broadcast Notifications\n- Citizen Registration Verification\n- Incident Responder Alerts", "x": -590, "y": 400, "width": 300, "height": 130, "color": "3"},
+		{"id": "node-admin", "type": "text", "text": "### 💻 DevOps & DBA Access\n- Admin SSH / AWS SSM Session Manager\n- Database Migrations & Diagnostics", "x": -590, "y": 570, "width": 300, "height": 130, "color": "1"},
+
+		{"id": "node-alb", "type": "text", "text": "### 🌐 AWS Application Load Balancer (ALB)\n- Internet-Facing (Public Subnets)\n- Path-Based Routing Rules:\n  - `/api/v1/write/*` -> Write Target Group\n  - `/api/v1/read/*` -> Read Target Group\n- Presigned URL API (`/api/v1/write/upload-url`)", "x": -180, "y": 30, "width": 330, "height": 170, "color": "4"},
+		{"id": "node-auth-middleware", "type": "text", "text": "### 🛡️ Express Auth Middleware\n- Native `aws-jwt-verify` in services\n- Verifies Cognito JWT Bearer tokens\n- Enforces Citizen / Staff / Admin RBAC", "x": -180, "y": 240, "width": 330, "height": 130, "color": "4"},
+		{"id": "node-cognito", "type": "text", "text": "### 👤 Amazon Cognito User Pool\n- Citizen & Responder Identity Management\n- Hosted UI / Social IdP Federation\n- Post-Confirmation Lambda Trigger", "x": -180, "y": 410, "width": 330, "height": 140, "color": "6"},
+		{"id": "node-bastion", "type": "text", "text": "### 🛡️ EC2 Bastion Host\n- Located in Public Subnet\n- Secure SSH Tunneling to RDS\n- Restricted Security Group ingress", "x": -180, "y": 590, "width": 330, "height": 120, "color": "1"},
+
+		{"id": "node-write-service", "type": "text", "text": "### ✍️ Write Service (:8080)\n- **Stack:** Node.js / Express / TypeScript\n- **Role:** Handles Commands & Mutations\n- **Presigned URL Creator:** Issues S3 upload passes\n- **Integrations:** Prisma ORM, EventBridge", "x": 260, "y": 30, "width": 390, "height": 180, "color": "1"},
+		{"id": "node-read-service", "type": "text", "text": "### 📖 Read Service (:8081)\n- **Stack:** Node.js / Express / TypeScript\n- **Role:** High-speed Emergency Lookups\n- **Job Status API:** Poll `/api/v1/read/scan/jobs/:id`\n- **Session Cache:** DynamoDB Session validation", "x": 260, "y": 240, "width": 390, "height": 180, "color": "4"},
+		{"id": "node-ai-service", "type": "text", "text": "### 🧠 AI Service & SQS Consumer (:8000)\n- **Stack:** Python / FastAPI / Boto3 / InsightFace\n- **Async SQS Worker:** Polls `ai-jobs-queue` (Long Polling)\n- **Sync Fast Path:** `POST /extract-embedding`\n- **Storage:** Writes match results to DynamoDB & RDS", "x": 260, "y": 450, "width": 390, "height": 190, "color": "6"},
+
+		{"id": "node-sqs-queue", "type": "text", "text": "### 📥 Amazon SQS: `ai-jobs-queue` + DLQ\n- S3 `ObjectCreated` event consumer\n- Buffer for high-burst image uploads\n- Visibility Timeout: 120s, DLQ on 3 retries", "x": 760, "y": 30, "width": 390, "height": 130, "color": "3"},
+		{"id": "node-eventbridge-emergency", "type": "text", "text": "### 🚨 EventBridge: EMERGENCY_BUS\n- Emergency SOS triggers & Responder alerts\n- Identification & Face match events\n- Rules: `emergency-audit-rule`, `identification-rule`", "x": 760, "y": 190, "width": 390, "height": 130, "color": "2"},
+		{"id": "node-lambda-workers", "type": "text", "text": "### ⚡ AWS Lambda Workers\n- **`post-confirmation`**: Creates initial DB profile on signup\n- **`audit-worker`**: Logs compliance actions to DynamoDB\n- **`notification-worker`**: Sends SMS/Email emergency alerts\n- **`grant-permission-worker`**: Manages time-limited access tokens", "x": 760, "y": 350, "width": 390, "height": 200, "color": "3"},
+
+		{"id": "node-rds-postgres", "type": "text", "text": "### 🐘 Amazon RDS PostgreSQL (Multi-AZ)\n- **Engine:** PostgreSQL 16+\n- **Extension:** `pgvector` (512-d Face Vectors)\n- **Data:** Citizens, Medical Profiles, Incidents\n- **Network:** Private Subnets with DB Subnet Group", "x": 1260, "y": 30, "width": 390, "height": 180, "color": "2"},
+		{"id": "node-dynamo-scanjobs", "type": "text", "text": "### ⚡ DynamoDB: ScanJobs Table\n- Async AI job tracking (PENDING, PROCESSING, COMPLETED)\n- Real-time client result retrieval\n- TTL: Auto-delete after 2 hours", "x": 1260, "y": 240, "width": 390, "height": 140, "color": "2"},
+		{"id": "node-dynamo-sessions", "type": "text", "text": "### ⚡ DynamoDB: Sessions & Audit Tables\n- **SessionsTable**: 1-hour active responder passes\n- **AuditLogsTable**: Immutable access audit trail", "x": 1260, "y": 410, "width": 390, "height": 140, "color": "2"},
+		{"id": "node-s3-bucket", "type": "text", "text": "### 🪣 Amazon S3: Avatars & Raw Scans\n- Direct Presigned URL uploads (`raw-scans/`)\n- EventBridge notifications enabled (`eventbridge=true`)\n- Processed avatars & media assets", "x": 1260, "y": 580, "width": 390, "height": 140, "color": "5"}
+	],
+	"edges": [
+		{"id": "edge-clients-alb", "fromNode": "node-clients", "fromSide": "right", "toNode": "node-alb", "toSide": "left", "label": "HTTPS API Requests"},
+		{"id": "edge-clients-s3", "fromNode": "node-clients", "fromSide": "bottom", "toNode": "node-s3-bucket", "toSide": "bottom", "label": "Direct Presigned Upload"},
+		{"id": "edge-clients-cognito", "fromNode": "node-clients", "fromSide": "bottom", "toNode": "node-cognito", "toSide": "left", "label": "User Login / Sign-up"},
+		{"id": "edge-s3-sqs", "fromNode": "node-s3-bucket", "fromSide": "top", "toNode": "node-sqs-queue", "toSide": "right", "label": "EventBridge: ObjectCreated"},
+		{"id": "edge-alb-write", "fromNode": "node-alb", "fromSide": "right", "toNode": "node-write-service", "toSide": "left", "label": "Target Group /write/*"},
+		{"id": "edge-alb-read", "fromNode": "node-alb", "fromSide": "right", "toNode": "node-read-service", "toSide": "left", "label": "Target Group /read/*"},
+		{"id": "edge-sqs-ai", "fromNode": "node-sqs-queue", "fromSide": "bottom", "toNode": "node-ai-service", "toSide": "top", "label": "Long Polling Consumer"},
+		{"id": "edge-ai-rds", "fromNode": "node-ai-service", "fromSide": "right", "toNode": "node-rds-postgres", "toSide": "left", "label": "pgvector Distance Search"},
+		{"id": "edge-ai-scanjobs", "fromNode": "node-ai-service", "fromSide": "right", "toNode": "node-dynamo-scanjobs", "toSide": "left", "label": "Save Match Result"},
+		{"id": "edge-ai-sessions", "fromNode": "node-ai-service", "fromSide": "right", "toNode": "node-dynamo-sessions", "toSide": "left", "label": "Create Access Session"},
+		{"id": "edge-ai-events", "fromNode": "node-ai-service", "fromSide": "top", "toNode": "node-eventbridge-emergency", "toSide": "bottom", "label": "Publish victim.identified"},
+		{"id": "edge-read-scanjobs", "fromNode": "node-read-service", "fromSide": "right", "toNode": "node-dynamo-scanjobs", "toSide": "left", "label": "Fetch Job Status"},
+		{"id": "edge-write-scanjobs", "fromNode": "node-write-service", "fromSide": "right", "toNode": "node-dynamo-scanjobs", "toSide": "left", "label": "Initialize PENDING Job"}
+	]
+}
