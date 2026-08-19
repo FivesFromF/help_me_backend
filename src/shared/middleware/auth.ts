@@ -3,7 +3,7 @@ import { CognitoJwtVerifier } from "aws-jwt-verify";
 
 export interface AuthContext {
   userId: string;
-  role: "citizen" | "staff" | "admin";
+  role: "citizen" | "admin";
 }
 
 declare global {
@@ -19,7 +19,6 @@ const userPoolId = process.env.COGNITO_USER_POOL_ID || "";
 const clientId   = process.env.COGNITO_CLIENT_ID    || "";
 
 // SKIP_AUTH=true: bypasses JWT verification for local dev without Cognito.
-// Trusts x-cognito-id / x-role headers directly (same as test-pipeline.ts sends).
 const SKIP_AUTH = process.env.SKIP_AUTH === "true";
 
 // Public paths that are accessible without any token
@@ -38,22 +37,18 @@ function getVerifier() {
   return verifier;
 }
 
-// ─── Role extractor (shared with old Lambda authorizer logic) ─────────────────
-function extractRole(groups: string[]): "citizen" | "staff" | "admin" {
+// ─── Role extractor ──────────────────────────────────────────────────────────
+function extractRole(groups: string[]): "citizen" | "admin" {
   if (groups.some((g) => g.toLowerCase() === "admin" || g.toLowerCase() === "admins")) return "admin";
-  if (groups.some((g) => g.toLowerCase() === "staff")) return "staff";
   return "citizen";
 }
 
 // ─── authenticate middleware ──────────────────────────────────────────────────
-// Runs on every request. Sets req.auth if credentials are valid.
-// Does NOT reject — let requireRole() handle 401/403.
 export const authenticate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  // Always pass through preflight and public paths unauthenticated
   if (req.method === "OPTIONS") return next();
   const isPublic = PUBLIC_PATHS.some((p) => req.path.endsWith(p));
 
-  // ── Mode 1: Direct x-cognito-id header (for local tests / dev mode / internal) ───
+  // Mode 1: Direct x-cognito-id header (for local tests / dev mode)
   const headerId = req.headers["x-cognito-id"] as string | undefined;
   const headerRole = (req.headers["x-role"] as string | undefined)?.toLowerCase();
   if (headerId) {
@@ -64,7 +59,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     return next();
   }
 
-  // ── Mode 2: Production — verify Cognito JWT from Authorization header ───────
+  // Mode 2: Production — verify Cognito JWT from Authorization header
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.slice(7);
@@ -88,8 +83,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
 };
 
 // ─── requireRole middleware ───────────────────────────────────────────────────
-// Place after authenticate(). Rejects if no valid auth or role not in allowedRoles.
-export const requireRole = (allowedRoles: Array<"citizen" | "staff" | "admin">) => {
+export const requireRole = (allowedRoles: Array<"citizen" | "admin">) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.auth?.userId) {
       res.status(401).json({ error: "Unauthorized: Missing or invalid authentication token" });
@@ -102,4 +96,3 @@ export const requireRole = (allowedRoles: Array<"citizen" | "staff" | "admin">) 
     next();
   };
 };
-

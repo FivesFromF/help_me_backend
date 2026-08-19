@@ -16,7 +16,7 @@ The backend uses a **CQRS (Command Query Responsibility Segregation)** pattern d
 
 1. **Write Server (`Node.js/Express`)**: Port `8080` — Handles mutations, authentication validation, writes to PostgreSQL (via Prisma), and publishes domain events to AWS EventBridge.
 2. **Read Server (`Node.js/Express`)**: Port `8081` — High-performance read operations, queries, and emergency medical lookups (NFC, QR, Citizen search).
-3. **AI Server (`Python/FastAPI`)**: Port `8000` — Face embedding generation (512-d vectors via `pgvector`), biometric facial recognition, and OCR document verification.
+3. **AI Service (`Python Worker`)**: Dedicated SQS Consumer — Face embedding generation (512-d vectors via `pgvector`) and biometric facial recognition.
 4. **Asynchronous Event Workers (`AWS Lambda`)**:
    - `post-confirmation`: Initializes citizen profile upon Cognito registration.
    - `audit-worker`: Immutable audit trail logging.
@@ -35,5 +35,5 @@ The backend uses a **CQRS (Command Query Responsibility Segregation)** pattern d
 - [[Architecture/Infra_Architecture.canvas|Interactive Infrastructure Architecture Map (Canvas)]]
 - [[Services/Write_Server|Write Server (Port 8080)]]
 - [[Services/Read_Server|Read Server (Port 8081)]]
-- [[Services/AI_Server|AI Server (Port 8000)]]
+- [[Services/AI_Server|AI Service (SQS Worker)]]
 - [[Runbooks/Local_Testing|Local Development & Emulation Guide]]

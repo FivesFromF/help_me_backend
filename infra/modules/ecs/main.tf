@@ -406,8 +406,3 @@ output "cluster_id" {
 output "execution_role_arn" {
   value = aws_iam_role.ecs_execution_role.arn
 }
-
-variable "ai_server_url" {
-  type    = string
-  default = "http://ai.helpme.local:8000"
-}

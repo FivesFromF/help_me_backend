@@ -37,24 +37,6 @@ model Citizen {
   @@map("citizens")
 }
 
-model Staff {
-  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cognitoId    String            @unique @map("cognito_id")
-  email        String            @unique
-  fullName     String            @map("full_name")
-  phone        String?
-  avatarUrl    String?           @map("avatar_url")
-  hospitalName String            @map("hospital_name")
-  department   String?
-  status       String            @default("active")
-  createdAt    DateTime?         @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime?         @default(now()) @map("updated_at") @db.Timestamptz
-
-  reports      EmergencyReport[]
-
-  @@map("staff")
-}
-
 model Admin {
   id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   cognitoId String    @unique @map("cognito_id")
@@ -107,8 +89,7 @@ model QrCode {
 
 model EmergencyReport {
   id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  reporterId           String?   @map("reporter_id") @db.Uuid
-  reporter             Staff?    @relation(fields: [reporterId], references: [id])
+  reporterId           String?   @map("reporter_id")
   victimId             String?   @map("victim_id") @db.Uuid
   victim               Citizen?  @relation(fields: [victimId], references: [id])
   locationLat          String    @map("location_lat")

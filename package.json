@@ -16,9 +16,8 @@
     "start:read": "tsx src/services/read-server/index.ts",
     "dev:write": "tsx watch src/services/write-server/index.ts",
     "dev:read": "tsx watch src/services/read-server/index.ts",
-    "test": "tsx test/test-pipeline.ts",
-    "test:local": "tsx test/test-pipeline.ts",
-    "test:ai": "pytest test/ai-test -v"
+    "test": "python test/ai-test/process_images_to_json.py",
+    "test:ai": "python test/ai-test/process_images_to_json.py"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

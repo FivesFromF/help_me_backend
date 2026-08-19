@@ -50,10 +50,10 @@ npm run dev:write
 npm run dev:read
 ```
 
-### Terminal 3: AI Service & SQS Background Worker (`:8000`)
+### Terminal 3: AI Service & SQS Background Worker
 ```bash
 cd src/services/ai-server
-pip install boto3 psycopg2-binary
+pip install -r requirements.txt
 python main.py
 ```
 
@@ -70,7 +70,7 @@ npm run test:local
 ```
 
 ### Test Coverage:
-1. **Health Checks**: Write (`:8080`), Read (`:8081`), and AI (`:8000`) servers.
+1. **Health Checks**: Write (`:8080`) and Read (`:8081`) servers.
 2. **S3 Presigned Upload**: Upload dummy face scan to local S3.
 3. **SQS Event Dispatch**: Publish `ObjectCreated` message to `helpme-ai-jobs-queue`.
 4. **DynamoDB State**: Create and read back `PENDING` scan jobs.

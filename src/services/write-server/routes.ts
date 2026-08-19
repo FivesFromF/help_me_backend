@@ -159,7 +159,7 @@ writeRouter.post(
 // Register NFC tag
 writeRouter.post(
   ["/api/v1/write/nfc", "/nfc", "/api/v1/nfc"],
-  requireRole(["citizen", "staff", "admin"]),
+  requireRole(["citizen", "admin"]),
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { userId, role } = req.auth!;
@@ -227,7 +227,7 @@ writeRouter.post(
 // Emergency Report
 writeRouter.post(
   ["/api/v1/write/emergency/report", "/emergency/report", "/api/v1/emergency/report"],
-  requireRole(["staff", "admin"]),
+  requireRole(["citizen", "admin"]),
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { userId } = req.auth!;
@@ -265,7 +265,7 @@ writeRouter.post(
 // Generate Presigned Upload URL for Async AI Processing
 writeRouter.post(
   ["/api/v1/write/upload-url", "/upload-url", "/api/v1/upload-url"],
-  requireRole(["citizen", "staff", "admin"]),
+  requireRole(["citizen", "admin"]),
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { userId, role } = req.auth!;

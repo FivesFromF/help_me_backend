@@ -174,7 +174,7 @@ def process_s3_image(processor: FaceProcessor, bucket: str, key: str):
 
                 update_job_status(job_id, "COMPLETED", result={"enrolled": True, "citizenId": citizen_id})
             else:
-                # Face Search Flow
+                # Face Search Flow (Top 3 Candidates)
                 cur.execute(
                     """
                     SELECT id, cognito_id as "cognitoId", email, full_name as "fullName", phone, 
@@ -184,36 +184,55 @@ def process_s3_image(processor: FaceProcessor, bucket: str, key: str):
                     FROM citizens 
                     WHERE face_embedding IS NOT NULL AND (face_embedding <=> %s::vector) < 0.35 
                     ORDER BY distance ASC 
-                    LIMIT 1
+                    LIMIT 3
                     """,
                     (vector_str, vector_str),
                 )
-                match = cur.fetchone()
+                matches = cur.fetchall()
 
-                if match:
-                    distance = float(match["distance"])
-                    victim_id = match["id"]
-
-                    # Fetch medical record if available
-                    cur.execute(
-                        """
-                        SELECT distinguishing_marks as "distinguishingMarks", blood_group as "bloodGroup", 
-                               allergies, background_diseases as "backgroundDiseases", 
-                               current_medications as "currentMedications", notes 
-                        FROM medical_records 
-                        WHERE citizen_id = %s
-                        """,
-                        (victim_id,),
-                    )
-                    record = cur.fetchone()
-
+                if matches:
                     # Lookup responder_id from Job
                     job_table = dynamodb_resource.Table(SCAN_JOBS_TABLE)
                     job_resp = job_table.get_item(Key={"job_id": job_id})
                     responder_id = job_resp.get("Item", {}).get("responder_id", "system")
 
-                    # Grant 1-hour temporary session
-                    grant_access_session(responder_id, victim_id)
+                    top_candidates = []
+                    for match in matches:
+                        m_dist = float(match["distance"])
+                        victim_id = match["id"]
+
+                        # Fetch medical record if available
+                        cur.execute(
+                            """
+                            SELECT distinguishing_marks as "distinguishingMarks", blood_group as "bloodGroup", 
+                                   allergies, background_diseases as "backgroundDiseases", 
+                                   current_medications as "currentMedications", notes 
+                            FROM medical_records 
+                            WHERE citizen_id = %s
+                            """,
+                            (victim_id,),
+                        )
+                        record = cur.fetchone()
+
+                        # Serialize match for DynamoDB
+                        match_data = dict(match)
+                        if "dateOfBirth" in match_data and match_data["dateOfBirth"]:
+                            match_data["dateOfBirth"] = str(match_data["dateOfBirth"])
+                        match_data["distance"] = str(m_dist)
+
+                        top_candidates.append({
+                            "victim": match_data,
+                            "record": dict(record) if record else None,
+                            "distance": m_dist,
+                        })
+
+                    # Primary (best) match
+                    primary = top_candidates[0]
+                    primary_victim_id = primary["victim"]["id"]
+                    primary_distance = primary["distance"]
+
+                    # Grant 1-hour temporary session for primary match
+                    grant_access_session(responder_id, primary_victim_id)
 
                     # Emit victim.identified Event
                     publish_emergency_event(
@@ -221,34 +240,41 @@ def process_s3_image(processor: FaceProcessor, bucket: str, key: str):
                         {
                             "actorId": responder_id,
                             "responderId": responder_id,
-                            "targetId": victim_id,
+                            "targetId": primary_victim_id,
                             "method": "FACE",
-                            "metadata": {"distance": distance, "jobId": job_id},
+                            "metadata": {
+                                "distance": primary_distance,
+                                "jobId": job_id,
+                                "totalCandidates": len(top_candidates),
+                            },
                         },
                     )
-
-                    # Serialize match for DynamoDB
-                    match_data = dict(match)
-                    if "dateOfBirth" in match_data and match_data["dateOfBirth"]:
-                        match_data["dateOfBirth"] = str(match_data["dateOfBirth"])
-                    match_data["distance"] = str(distance)
 
                     update_job_status(
                         job_id,
                         "COMPLETED",
                         result={
                             "matchStatus": "MATCH_FOUND",
-                            "distance": distance,
-                            "victim": match_data,
-                            "record": dict(record) if record else None,
+                            "matchesCount": len(top_candidates),
+                            "distance": primary_distance,
+                            "victim": primary["victim"],
+                            "record": primary["record"],
+                            "topMatches": top_candidates,
                         },
                     )
-                    logger.info(f"Match found for job {job_id}: victim {victim_id} (distance: {distance:.4f})")
+                    logger.info(
+                        f"Match found for job {job_id}: {len(top_candidates)} candidate(s) (best: {primary_victim_id}, distance: {primary_distance:.4f})"
+                    )
                 else:
                     update_job_status(
                         job_id,
                         "COMPLETED",
-                        result={"matchStatus": "NO_MATCH", "message": "No match found within similarity threshold"},
+                        result={
+                            "matchStatus": "NO_MATCH",
+                            "matchesCount": 0,
+                            "topMatches": [],
+                            "message": "No match found within similarity threshold",
+                        },
                     )
                     logger.info(f"No match found for job {job_id}")
     except Exception as e:

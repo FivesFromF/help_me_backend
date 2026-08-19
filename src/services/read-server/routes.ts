@@ -99,7 +99,7 @@ readRouter.get(
 // POST Scan (for Responders: Staff/Admin)
 readRouter.post(
   ["/api/v1/read/scan", "/scan", "/api/v1/scan"],
-  requireRole(["staff", "admin"]),
+  requireRole(["citizen", "admin"]),
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { userId: responderId, role: responderRole } = req.auth!;
@@ -205,7 +205,7 @@ readRouter.post(
 // GET Victim Record (Re-access within 1-hour session window)
 readRouter.get(
   ["/api/v1/read/victim/:victimId", "/victim/:victimId", "/api/v1/victim/:victimId"],
-  requireRole(["staff", "admin"]),
+  requireRole(["citizen", "admin"]),
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { userId: responderId, role: responderRole } = req.auth!;
@@ -256,7 +256,7 @@ readRouter.get(
 // GET Async Scan / AI Job Status
 readRouter.get(
   ["/api/v1/read/scan/jobs/:jobId", "/scan/jobs/:jobId", "/api/v1/jobs/:jobId"],
-  requireRole(["citizen", "staff", "admin"]),
+  requireRole(["citizen", "admin"]),
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { jobId } = req.params;

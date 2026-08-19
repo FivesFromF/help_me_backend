@@ -14,4 +14,4 @@
 | **`post-confirmation`** | Cognito Trigger | Triggered right after citizen confirms email; automatically creates citizen skeleton row in database. |
 | **`audit-worker`** | `CORE_SYSTEM_BUS` | Records compliance actions, medical access events, and authentication changes. |
 | **`notification-worker`** | `EMERGENCY_BUS` | Sends emergency alerts via SMS/Email and pushes notifications to emergency contacts. |
-| **`grant-permission-worker`** | `EMERGENCY_BUS` | Grants time-limited emergency authorization to authorized hospital staff to access full medical history. |
+| **`grant-permission-worker`** | `EMERGENCY_BUS` | Grants time-limited emergency authorization to authorized responders to access full medical history. |

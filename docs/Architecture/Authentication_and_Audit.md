@@ -30,7 +30,7 @@ Incoming HTTP Request
 
 ### RBAC Enforcement (`requireRole`)
 
-Route handlers enforce role permissions using the `requireRole(["citizen" | "staff" | "admin"])` middleware:
+Route handlers enforce role permissions using the `requireRole(["citizen" | "admin"])` middleware:
 - Returns `401 Unauthorized` if `req.auth` is missing.
 - Returns `403 Forbidden` if `req.auth.role` is not in the allowed list.
 
@@ -71,7 +71,7 @@ Every critical security event, user state change, and emergency action is captur
 | **`medical_record.updated`** | `CORE_SYSTEM_BUS` | Medical record created or modified | `helpme.backend` |
 | **`citizen.face.registered`** | `CORE_SYSTEM_BUS` | Citizen completes face biometric registration | `helpme.backend` |
 | **`nfc.registered`** | `CORE_SYSTEM_BUS` | NFC tag registered and linked to citizen | `helpme.backend` |
-| **`emergency.reported`** | `CORE_SYSTEM_BUS` | Staff or Admin files an emergency report | `helpme.backend` |
+| **`emergency.reported`** | `CORE_SYSTEM_BUS` | Citizen or Admin files an emergency report | `helpme.backend` |
 | **`victim.identified`** | `EMERGENCY_BUS` | Face/NFC scan matches victim; triggers session grant & email alert | `helpme.ai-service` / `helpme.backend` |
 | **`victim.record.accessed`** | `CORE_SYSTEM_BUS` | Responder re-accesses medical record within 1-hour session | `helpme.backend` |
 

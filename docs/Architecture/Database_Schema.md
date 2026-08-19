@@ -31,7 +31,7 @@ Emergency hardware tokens linked to citizens:
 - `citizen_id`
 - `status` (`active`, `revoked`)
 
-### 4. `emergency_reports` & `staff`
-Incident management and responder logs:
-- `staff`: Hospital personnel and emergency responders
-- `emergency_reports`: Timestamped triage incidents, location GPS coordinates, and assigned hospital units.
+### 4. `emergency_reports` & `admins`
+Incident management and administrative logs:
+- `admins`: System administrators with full access
+- `emergency_reports`: Timestamped triage incidents, location GPS coordinates, and situation descriptions.

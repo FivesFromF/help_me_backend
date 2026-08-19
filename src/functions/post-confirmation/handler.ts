@@ -44,7 +44,7 @@ export const main = async (event: PostConfirmationTriggerEvent) => {
     let isInHighPriorityGroup = false;
     for (const group of groupsOut.Groups || []) {
       const name = group.GroupName?.toLowerCase() || "";
-      if (name === "admin" || name === "admins" || name === "staff") {
+      if (name === "admin" || name === "admins") {
         isInHighPriorityGroup = true;
         break;
       }

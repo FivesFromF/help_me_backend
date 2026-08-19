@@ -24,28 +24,7 @@ async function main() {
   });
   console.log(`✅ Admin seeded: ${admin.fullName} (${admin.cognitoId})`);
 
-  // 2. Seed Staff (Emergency Medical Responder)
-  const staff = await prisma.staff.upsert({
-    where: { cognitoId: "test-staff-01" },
-    create: {
-      cognitoId: "test-staff-01",
-      email: "doctor.tran@hospital.local",
-      fullName: "Dr. Tran Minh",
-      phone: "+84909123456",
-      hospitalName: "Cho Ray Hospital",
-      department: "Emergency Care",
-      status: "active",
-      avatarUrl: "https://api.dicebear.com/7.x/avataaars/svg?seed=Doctor",
-    },
-    update: {
-      fullName: "Dr. Tran Minh",
-      hospitalName: "Cho Ray Hospital",
-      department: "Emergency Care",
-    },
-  });
-  console.log(`✅ Staff seeded: ${staff.fullName} (${staff.hospitalName})`);
-
-  // 3. Seed Citizen with Medical Record and NFC Tag
+  // 2. Seed Citizen with Medical Record and NFC Tag
   const citizen = await prisma.citizen.upsert({
     where: { cognitoId: "test-citizen-01" },
     create: {
@@ -79,7 +58,7 @@ async function main() {
   });
   console.log(`✅ Citizen seeded: ${citizen.fullName} (${citizen.id})`);
 
-  // 4. Seed Medical Record for Citizen
+  // 3. Seed Medical Record for Citizen
   const medicalRecord = await prisma.medicalRecord.upsert({
     where: { citizenId: citizen.id },
     create: {
@@ -102,7 +81,7 @@ async function main() {
     `✅ Medical record seeded for citizen ID: ${medicalRecord.citizenId}`,
   );
 
-  // 5. Seed NFC Tag for Citizen
+  // 4. Seed NFC Tag for Citizen
   const nfcTag = await prisma.nfcTag.upsert({
     where: { id: "NFC_DEMO_CARD_01" },
     create: {

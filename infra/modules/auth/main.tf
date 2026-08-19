@@ -45,12 +45,6 @@ resource "aws_cognito_user_group" "admins" {
   description  = "System Administrators with full access"
 }
 
-resource "aws_cognito_user_group" "staff" {
-  name         = "Staff"
-  user_pool_id = aws_cognito_user_pool.pool.id
-  description  = "Healthcare Staff and Doctors"
-}
-
 resource "aws_cognito_user_group" "citizens" {
   name         = "Citizens"
   user_pool_id = aws_cognito_user_pool.pool.id
