@@ -20,20 +20,20 @@ $REGION = "ap-southeast-1"
 $ACCOUNT_ID = "915742579310"
 $ECR_URL = "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
-# Mapping Lambda Name -> Code Directory & Main File
+# Mapping Lambda Name -> Code Directory & Zip
 $LAMBDA_MAP = @{
-    "authorizer"        = @{ dir = "cmd/authorizer"; binary = "bootstrap" }
-    "post-confirmation" = @{ dir = "cmd/post-confirmation"; binary = "bootstrap" }
-    "audit"            = @{ dir = "cmd/audit-worker"; binary = "bootstrap" }
-    "notification"     = @{ dir = "cmd/notification-worker"; binary = "bootstrap" }
-    "grant"            = @{ dir = "cmd/grant-permission-worker"; binary = "bootstrap" }
+    "authorizer"        = @{ zip = "infra/modules/authorizer/authorizer.zip"; func = "helpme-authorizer" }
+    "post-confirmation" = @{ zip = "infra/modules/lambda/post_confirmation.zip"; func = "helpme-post-confirmation" }
+    "audit"            = @{ zip = "infra/modules/lambda/audit_worker.zip"; func = "helpme-audit-worker" }
+    "notification"     = @{ zip = "infra/modules/lambda/notification_worker.zip"; func = "helpme-notification-worker" }
+    "grant"            = @{ zip = "infra/modules/lambda/grant_permission_worker.zip"; func = "helpme-grant-permission-worker" }
 }
 
-# Mapping Service Name -> Dockerfile
+# Mapping Service Name -> Dockerfile & Context
 $SERVICE_MAP = @{
-    "write" = @{ dockerfile = "cmd/write-server/Dockerfile"; repo = "helpme-backend"; tag = "write-latest" }
-    "read"  = @{ dockerfile = "cmd/read-server/Dockerfile"; repo = "helpme-backend"; tag = "read-latest" }
-    "ai"    = @{ dockerfile = "cmd/ai-server/Dockerfile"; repo = "helpme-ai-server"; tag = "latest" }
+    "write" = @{ dockerfile = "src/services/write-server/Dockerfile"; context = "."; repo = "helpme-backend"; tag = "write-latest" }
+    "read"  = @{ dockerfile = "src/services/read-server/Dockerfile"; context = "."; repo = "helpme-backend"; tag = "read-latest" }
+    "ai"    = @{ dockerfile = "src/services/ai-server/Dockerfile"; context = "src/services/ai-server"; repo = "helpme-ai-server"; tag = "latest" }
 }
 
 # --- FUNCTIONS ---
@@ -45,7 +45,7 @@ function Build-Push-Service($svcName) {
     Write-Host ">>> Triển khai Service: $svcName" -ForegroundColor Cyan
     
     # 1. Build Docker
-    docker build -t "$($cfg.repo):$($cfg.tag)" -f "src/$($cfg.dockerfile)" src/
+    docker build -t "$($cfg.repo):$($cfg.tag)" -f "$($cfg.dockerfile)" "$($cfg.context)"
     if ($LASTEXITCODE -ne 0) { throw "Build Docker thất bại!" }
 
     # 2. Login ECR (chỉ làm 1 lần)
@@ -69,25 +69,18 @@ function Build-Push-Lambda($lmbName) {
 
     Write-Host ">>> Triển khai Lambda: $lmbName" -ForegroundColor Cyan
 
-    # 1. Build Go for Linux
-    $env:GOOS = "linux"
-    $env:GOARCH = "amd64"
-    $binaryPath = "src/$($cfg.binary)"
-    Write-Host "Đang build Go binary cho Linux..."
-    go build -o $binaryPath "src/$($cfg.dir)/main.go"
-    if ($LASTEXITCODE -ne 0) { throw "Build Go thất bại!" }
+    # 1. Bundle TypeScript Lambdas
+    Write-Host "Đang bundle TypeScript Lambdas..."
+    node build.js
+    if ($LASTEXITCODE -ne 0) { throw "Bundle Lambdas thất bại!" }
 
-    # 2. Zip
-    $zipPath = "src/$lmbName.zip"
-    if (Test-Path $zipPath) { Remove-Item $zipPath }
-    Compress-Archive -Path $binaryPath -DestinationPath $zipPath
+    # 2. CLI Update
+    $zipPath = $cfg.zip
+    if (-not (Test-Path $zipPath)) { throw "Không tìm thấy file ZIP: $zipPath" }
 
-    # 3. CLI Update (Siêu nhanh)
-    Write-Host "Đang cập nhật code lên AWS Lambda..." -ForegroundColor Yellow
-    aws lambda update-function-code --function-name "$PROJECT_NAME-$lmbName" --zip-file "fileb://$zipPath" --region $REGION
+    Write-Host "Đang cập nhật code lên AWS Lambda ($($cfg.func))..." -ForegroundColor Yellow
+    aws lambda update-function-code --function-name "$($cfg.func)" --zip-file "fileb://$zipPath" --region $REGION
 
-    # Cleanup
-    Remove-Item $binaryPath
     Write-Host "Triển khai Lambda $lmbName thành công!" -ForegroundColor Green
 }
 
@@ -106,6 +99,7 @@ try {
         switch ($Target) {
             "all" {
                 Write-Host "!!! ĐANG TRIỂN KHAI TOÀN BỘ HỆ THỐNG !!!" -ForegroundColor Magenta
+                node build.js
                 foreach ($s in $SERVICE_MAP.Keys) { Build-Push-Service $s }
                 cd infra
                 terraform apply -auto-approve
@@ -125,8 +119,4 @@ try {
     }
 } catch {
     Write-Error $_
-} finally {
-    # Reset GOOS/GOARCH tránh ảnh hưởng các phiên sau
-    $env:GOOS = ""
-    $env:GOARCH = ""
 }
