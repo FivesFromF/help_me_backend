@@ -14,8 +14,8 @@ resource "aws_dynamodb_table" "access_sessions" {
   }
 
   tags = {
-    Name    = "${var.project_name}-access-sessions"
-    Project = "HelpMe"
+    Name      = "${var.project_name}-access-sessions"
+    Project   = "HelpMe"
     Component = "DynamoDB-Sessions"
   }
 }
@@ -40,9 +40,31 @@ resource "aws_dynamodb_table" "audit_logs" {
   stream_enabled = false
 
   tags = {
-    Name    = "${var.project_name}-audit-logs"
-    Project = "HelpMe"
+    Name      = "${var.project_name}-audit-logs"
+    Project   = "HelpMe"
     Component = "DynamoDB-AuditLogs"
+  }
+}
+
+resource "aws_dynamodb_table" "scan_jobs" {
+  name         = "${var.project_name}-scan-jobs"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "job_id"
+
+  attribute {
+    name = "job_id"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
+
+  tags = {
+    Name      = "${var.project_name}-scan-jobs"
+    Project   = "HelpMe"
+    Component = "DynamoDB-ScanJobs"
   }
 }
 
@@ -64,4 +86,12 @@ output "audit_table_name" {
 
 output "audit_table_arn" {
   value = aws_dynamodb_table.audit_logs.arn
+}
+
+output "scan_jobs_table_name" {
+  value = aws_dynamodb_table.scan_jobs.name
+}
+
+output "scan_jobs_table_arn" {
+  value = aws_dynamodb_table.scan_jobs.arn
 }

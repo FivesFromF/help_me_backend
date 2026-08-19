@@ -46,3 +46,9 @@ resource "aws_s3_bucket_cors_configuration" "avatars" {
     max_age_seconds = 3000
   }
 }
+
+# Enable EventBridge notifications for S3 ObjectCreated events
+resource "aws_s3_bucket_notification" "avatars_eventbridge" {
+  bucket      = aws_s3_bucket.avatars.id
+  eventbridge = true
+}

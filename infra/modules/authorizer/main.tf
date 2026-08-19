@@ -4,8 +4,8 @@ resource "aws_iam_role" "authorizer_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
       Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
@@ -20,18 +20,20 @@ resource "aws_lambda_function" "authorizer" {
   filename      = "${path.module}/authorizer.zip"
   function_name = "${var.project_name}-authorizer"
   role          = aws_iam_role.authorizer_role.arn
-  handler       = "bootstrap" # For Go AL2023
-  runtime       = "provided.al2023"
+  handler       = "index.main"
+  runtime       = "nodejs20.x"
 
   environment {
     variables = {
-      USER_POOL_ID      = var.user_pool_id
-      APP_CLIENT_ID     = var.client_id
-      COGNITO_ENDPOINT  = var.user_pool_endpoint
+      USER_POOL_ID     = var.user_pool_id
+      APP_CLIENT_ID    = var.client_id
+      COGNITO_ENDPOINT = var.user_pool_endpoint
     }
   }
 
-  source_code_hash = filebase64sha256("${path.module}/authorizer.zip")
+  lifecycle {
+    ignore_changes = [filename, source_code_hash]
+  }
 }
 
 resource "aws_lambda_permission" "apigw" {

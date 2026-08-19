@@ -1,16 +1,6 @@
-output "api_endpoint" {
-  description = "The endpoint for the API Gateway"
-  value       = module.apigateway.api_endpoint
-}
-
-output "write_service_endpoint" {
-  description = "The endpoint for the Write service"
-  value       = module.ecs.write_service_endpoint
-}
-
-output "read_service_endpoint" {
-  description = "The endpoint for the Read service"
-  value       = module.ecs.read_service_endpoint
+output "alb_dns_name" {
+  description = "The public DNS name for the Application Load Balancer"
+  value       = module.alb.alb_dns_name
 }
 
 output "cognito_user_pool_id" {

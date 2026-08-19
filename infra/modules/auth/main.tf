@@ -7,7 +7,8 @@ resource "aws_cognito_user_pool" "pool" {
 
   # Lambda Triggers
   lambda_config {
-    post_confirmation = var.post_confirmation_lambda_arn
+    post_confirmation  = var.post_confirmation_lambda_arn
+    post_authentication = var.post_authentication_lambda_arn
   }
 
   # Password policy for MVP
@@ -76,8 +77,8 @@ resource "aws_cognito_user_pool_client" "client" {
   allowed_oauth_flows_user_pool_client = true
   allowed_oauth_flows                  = ["code", "implicit"]
   allowed_oauth_scopes                 = ["phone", "email", "openid", "profile", "aws.cognito.signin.user.admin"]
-  callback_urls                       = ["http://localhost:3000/", "helpme://auth-callback"]
-  logout_urls                         = ["http://localhost:3000/", "helpme://auth-logout"]
+  callback_urls                        = ["http://localhost:3000/", "helpme://auth-callback"]
+  logout_urls                          = ["http://localhost:3000/", "helpme://auth-logout"]
 
   # For MVP simplified auth
   generate_secret = false
@@ -89,9 +90,9 @@ resource "aws_cognito_identity_provider" "google" {
   provider_type = "Google"
 
   provider_details = {
-    authorize_scopes = "email openid profile"
-    client_id        = var.google_client_id
-    client_secret    = var.google_client_secret
+    authorize_scopes              = "email openid profile"
+    client_id                     = var.google_client_id
+    client_secret                 = var.google_client_secret
     attributes_url                = "https://people.googleapis.com/v1/people/me?personFields="
     attributes_url_add_attributes = "true"
     authorize_url                 = "https://accounts.google.com/o/oauth2/v2/auth?prompt=select_account"
@@ -124,13 +125,19 @@ variable "google_client_id" {
   default = "PLACEHOLDER"
 }
 variable "google_client_secret" {
-  type    = string
-  default = "PLACEHOLDER"
+  type      = string
+  default   = "PLACEHOLDER"
   sensitive = true
 }
 
 # Post Confirmation Lambda ARN (from lambda module)
 variable "post_confirmation_lambda_arn" {
+  type    = string
+  default = ""
+}
+
+# Post Authentication Lambda ARN (from lambda module)
+variable "post_authentication_lambda_arn" {
   type    = string
   default = ""
 }

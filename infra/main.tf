@@ -33,11 +33,11 @@ module "bastion" {
 }
 
 module "eventbridge" {
-  source                         = "./modules/eventbridge"
-  project_name                   = var.project_name
-  audit_lambda_arn               = module.lambda.audit_lambda_arn
-  notification_lambda_arn        = module.lambda.notification_lambda_arn
-  grant_permission_lambda_arn    = module.lambda.grant_permission_lambda_arn
+  source                      = "./modules/eventbridge"
+  project_name                = var.project_name
+  audit_lambda_arn            = module.lambda.audit_lambda_arn
+  notification_lambda_arn     = module.lambda.notification_lambda_arn
+  grant_permission_lambda_arn = module.lambda.grant_permission_lambda_arn
 }
 
 module "lambda" {
@@ -53,7 +53,7 @@ module "lambda" {
 
   # Database URLs (Constructing for PostgreSQL)
   database_url = "postgres://adminuser:${var.db_password}@${module.rds.cluster_endpoint}:5432/helpme"
-  
+
   # Cognito Reference
   user_pool_arn = module.auth.user_pool_arn
 
@@ -67,23 +67,33 @@ module "lambda" {
   audit_system_rule_arn    = module.eventbridge.audit_system_rule_arn
   audit_emergency_rule_arn = module.eventbridge.audit_emergency_rule_arn
   identification_rule_arn  = module.eventbridge.identification_rule_arn
+
+  # EventBridge Bus Name (for post-authentication sign-in event)
+  core_system_bus_name = module.eventbridge.system_bus_name
 }
 
 module "auth" {
   source        = "./modules/auth"
   project_name  = var.project_name
   random_suffix = var.random_suffix != "" ? var.random_suffix : random_string.suffix.result
-  
+
   google_client_id     = var.google_client_id
   google_client_secret = var.google_client_secret
 
-  post_confirmation_lambda_arn = module.lambda.post_confirmation_lambda_arn
+  post_confirmation_lambda_arn  = module.lambda.post_confirmation_lambda_arn
+  post_authentication_lambda_arn = module.lambda.post_authentication_lambda_arn
 }
 
 module "s3" {
   source        = "./modules/s3"
   project_name  = var.project_name
   random_suffix = var.random_suffix != "" ? var.random_suffix : random_string.suffix.result
+}
+
+module "sqs" {
+  source              = "./modules/sqs"
+  project_name        = var.project_name
+  avatars_bucket_name = module.s3.bucket_name
 }
 
 module "ai_service" {
@@ -95,41 +105,58 @@ module "ai_service" {
   execution_role_arn             = module.ecs.execution_role_arn
   cluster_id                     = module.ecs.cluster_id
   service_discovery_namespace_id = module.vpc.service_discovery_namespace_id
+
+  # Queue & Storage Integration
+  queue_url            = module.sqs.queue_url
+  queue_arn            = module.sqs.queue_arn
+  scan_jobs_table_name = module.dynamodb.scan_jobs_table_name
+  scan_jobs_table_arn  = module.dynamodb.scan_jobs_table_arn
+  sessions_table_name  = module.dynamodb.sessions_table_name
+  sessions_table_arn   = module.dynamodb.sessions_table_arn
+  avatars_bucket_name  = module.s3.bucket_name
+  avatars_bucket_arn   = module.s3.bucket_arn
+  db_cluster_endpoint  = module.rds.cluster_endpoint
+  db_password          = var.db_password
+  emergency_bus_name   = module.eventbridge.emergency_bus_name
+  emergency_bus_arn    = module.eventbridge.emergency_bus_arn
 }
 
-module "authorizer" {
-  source             = "./modules/authorizer"
-  project_name       = var.project_name
-  user_pool_id       = module.auth.user_pool_id
-  client_id          = module.auth.client_id
-  user_pool_endpoint = module.auth.user_pool_endpoint
-  api_execution_arn  = module.apigateway.execution_arn
+module "alb" {
+  source            = "./modules/alb"
+  project_name      = var.project_name
+  vpc_id            = module.vpc.vpc_id
+  public_subnet_ids = module.vpc.public_subnets
 }
 
 module "ecs" {
-  source                = "./modules/ecs"
-  project_name          = var.project_name
-  vpc_id                = module.vpc.vpc_id
-  subnet_ids            = module.vpc.public_subnets # Using public subnets for MVP simplicity (assign_public_ip=true)
-  
+  source       = "./modules/ecs"
+  project_name = var.project_name
+  vpc_id       = module.vpc.vpc_id
+  subnet_ids   = module.vpc.public_subnets # Using public subnets for MVP simplicity (assign_public_ip=true)
+
+  # ALB Integration
+  alb_sg_id              = module.alb.alb_sg_id
+  write_target_group_arn = module.alb.write_target_group_arn
+  read_target_group_arn  = module.alb.read_target_group_arn
+
   # Bus Info
-  system_bus_name       = module.eventbridge.system_bus_name
-  system_bus_arn        = module.eventbridge.system_bus_arn
-  emergency_bus_name    = module.eventbridge.emergency_bus_name
-  emergency_bus_arn     = module.eventbridge.emergency_bus_arn
+  system_bus_name    = module.eventbridge.system_bus_name
+  system_bus_arn     = module.eventbridge.system_bus_arn
+  emergency_bus_name = module.eventbridge.emergency_bus_name
+  emergency_bus_arn  = module.eventbridge.emergency_bus_arn
 
   # Images
   read_container_image  = var.read_container_image
   write_container_image = var.write_container_image
 
   # DB & Secret
-  db_cluster_endpoint   = module.rds.cluster_endpoint
-  db_password           = var.db_password
-  system_secret         = var.system_secret
+  db_cluster_endpoint = module.rds.cluster_endpoint
+  db_password         = var.db_password
+  system_secret       = var.system_secret
 
   # DynamoDB Sessions
-  sessions_table_name   = module.dynamodb.sessions_table_name
-  sessions_table_arn    = module.dynamodb.sessions_table_arn
+  sessions_table_name = module.dynamodb.sessions_table_name
+  sessions_table_arn  = module.dynamodb.sessions_table_arn
 
   # Cognito & Audit
   user_pool_id     = module.auth.user_pool_id
@@ -139,14 +166,6 @@ module "ecs" {
   # S3 Avatars
   avatars_bucket_name = module.s3.bucket_name
   avatars_bucket_arn  = module.s3.bucket_arn
-}
-
-module "apigateway" {
-  source                 = "./modules/apigateway"
-  project_name           = var.project_name
-  write_service_endpoint = module.ecs.write_service_endpoint
-  read_service_endpoint  = module.ecs.read_service_endpoint
-  authorizer_uri         = module.authorizer.authorizer_uri
 }
 
 variable "random_suffix" {
