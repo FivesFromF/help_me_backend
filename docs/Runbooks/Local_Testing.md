@@ -6,14 +6,18 @@ Run and test the entire HelpMe backend locally with zero cloud costs using Docke
 
 ## 🛠️ Step 1: Database Setup
 
-Start local PostgreSQL 16 with `pgvector` enabled:
+Start local PostgreSQL 16 with `pgvector` enabled, plus DynamoDB Local and its table setup:
 
 ```bash
-docker compose up db -d
+docker compose up -d db dynamodb dynamodb-init
 npm run prisma:generate
 npm run db:push
 npm run db:seed
 ```
+
+`db` is Postgres 16 + pgvector on `:5432`. `dynamodb` is DynamoDB Local on `:8001` (volume-backed,
+so tables survive restarts) and `dynamodb-init` creates `helpme-access-sessions`,
+`helpme-scan-jobs` and `helpme-audit-logs`, then exits — it is idempotent and safe to re-run.
 
 ---
 
@@ -115,9 +119,25 @@ python main.py
 npm run test:api
 ```
 
-Builds the read/write routers in-process on ephemeral ports and runs 18 checks against the local
-Postgres. It needs the database (Step 1); the emulators (Step 2) are only required if you want the
-event path to actually reach the workers.
+Builds the read/write routers in-process on ephemeral ports and runs **39 checks** against the
+local Postgres. It needs the database (Step 1). Seven of those checks (`upload-url`, scan-job
+polling and the four victim-access cases) additionally need DynamoDB on `:8001`. The full Step 2
+serverless stack provides it, but compose is lighter and enough:
+
+```bash
+docker compose up -d dynamodb dynamodb-init
+```
+
+`dynamodb-init` creates the three tables and exits; it is idempotent, so it is safe to leave in
+every `up`. Skip this and those checks fail with `ECONNREFUSED 127.0.0.1:8001` — and note that the
+victim-access case V-01 would still *pass*, because `hasActiveSession()` denies on any DynamoDB
+error.
+
+The EventBridge emulator (`:4010`) is only needed if you want the event path to reach the workers;
+without it you get `[events] failed to publish` warnings, which never change an HTTP status.
+
+One check fails by design: `R-03` reproduces an open consent defect — see
+`test/api-test/README.md` note F.
 
 The full catalogue of expected status codes per endpoint is `test/api-test/README.md`.
 
