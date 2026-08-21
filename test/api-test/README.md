@@ -6,8 +6,9 @@ infrastructure behaviour is out of scope here.
 Run: `npm run test:api` (in-process Express apps on ephemeral ports).
 
 **59 of these cases execute today**; 58 pass and R-03 fails against a real defect (note F).
-Everything still unimplemented is blocked on the AI service — the face-recognition happy paths
-(W-04, W-06, CW-06, and the `method: "FACE"` branch of S-01) need the Python pipeline running.
+Two groups are written but not executing: the face-recognition happy paths (W-04, W-06, CW-06, and
+the `method: "FACE"` branch of S-01) are blocked on the Python pipeline, and the `post-confirmation`
+cases (§13, PC-01–PC-06) are designed but not yet coded — the owner is taking those.
 
 Every run overwrites `docs/Testing/Test_Report.md` with the result: totals per suite, the failures
 with their detail lines, and the full check list.
@@ -316,3 +317,46 @@ tilted, anti-spoof, no match — and a responder shown an empty `200` mid-emerge
 (`helpme-avatars-bucket`), `local-infra` creates `helpme-avatars-local`, and `upload.routes.ts`
 reads `S3_AVATARS_BUCKET_NAME` into a variable it never uses. A real upload against the emulator
 will not land until those agree — see the pending list in `docs/Testing/Test_Report.md`.
+
+---
+
+## 13. `post-confirmation` worker (not implemented — owner)
+
+Not written yet. Documented here so the case is designed before it is coded, and carried into
+every report run by the pending list in `report.ts`.
+
+`src/functions/post-confirmation/handler.ts` is the **sole writer of the citizen skeleton row**: no
+HTTP route creates a citizen (note A), so a regression here breaks every new registration and
+nothing else in the system notices. It is the only worker §11 does not cover.
+
+| ID | Given | Then |
+| :-- | :-- | :-- |
+| PC-01 | a new `PostConfirmation_ConfirmSignUp` event | citizen row with `cognitoId`, `email`, `fullName`; `isProfileUpdated:false`, `isVerified:false`; the event is returned unchanged |
+| PC-02 | user already in `admin` / `admins` | **no** `AdminAddUserToGroup` call — the row is still created |
+| PC-03 | user in no group | added to `Citizens` |
+| PC-04 | the same event twice | exactly one row; the second publish carries `isNewRecord: false` |
+| PC-05 | a successful run | `user.signed_up` on `CORE_SYSTEM_BUS_NAME` with `actorId` = username → hand to `audit-worker`, as WK-03 does |
+| PC-06 | the Cognito call fails | **reproduces the defect below**: the event is returned, no row is written, no error surfaces |
+
+**Note G — every failure in this handler is silent.** The whole body sits in one `try` whose
+`catch` only logs, and `main` returns `event` regardless (`handler.ts:87-90`). Cognito therefore
+confirms the user, the app lets them sign in, and there is no citizen row and no retry. Two
+reachable paths:
+
+- `AdminListGroupsForUser` (line 38) is the **first** await in the `try`, so any Cognito error
+  skips the DB insert entirely — a transient failure costs that user their profile permanently.
+- `email` is `@unique` (`prisma/schema.prisma:15`) and a missing attribute defaults to `""`
+  (line 34), so the *second* signup without an email attribute violates the constraint and is
+  swallowed the same way.
+
+PC-06 asserts the behaviour as it stands; returning the event while dropping the row is the thing
+to fix.
+
+⚠️ **`event_capture.ts` will not see this handler's events.** Every other publisher reads a
+per-service endpoint var (`events.service.ts:3`, `job.service.ts:4`, both DynamoDB workers), but
+this one constructs `new EventBridgeClient({})` with no override (`handler.ts:11`) — it is the only
+place in `src/` that does. PC-05 therefore needs the SDK's own `AWS_ENDPOINT_URL` /
+`AWS_ENDPOINT_URL_EVENTBRIDGE`, and stubbing Cognito needs
+`AWS_ENDPOINT_URL_COGNITO_IDENTITY_PROVIDER`. Both clients bind at import time, so this group must
+use dynamic `await import()` like §11 — and the SDK's env-var precedence should be confirmed
+against the installed `@aws-sdk` (`^3.758.0`) before the group is built on it.

@@ -35,11 +35,22 @@ const PENDING: { what: string; why: string; note: string }[] = [
       "since every one of them authenticates by header.",
   },
   {
-    what: "`post-confirmation` worker",
+    what: "🟠 `post-confirmation` worker (PC-01–PC-06)",
     why:
-      "The only worker with no coverage. It creates the citizen skeleton row on Cognito signup, " +
-      "so a regression breaks every new registration silently — nothing else writes that row.",
-    note: "To be tested next.",
+      "The only worker with no coverage, and the sole writer of the citizen skeleton row on Cognito " +
+      "signup — no HTTP route creates a citizen, so a regression breaks every new registration " +
+      "silently. Worse, the handler cannot report its own failure: the whole body sits in one `try` " +
+      "whose `catch` only logs, and `main` returns the event regardless, so a Cognito error (the " +
+      "first await, before the insert) or the `email @unique` collision on a second attribute-less " +
+      "signup leaves a confirmed user with no profile and no retry. Six cases are designed in " +
+      "`test/api-test/README.md` §13: row created (PC-01), group membership honoured (PC-02, " +
+      "PC-03), idempotency (PC-04), `user.signed_up` reaching the audit trail (PC-05), and the " +
+      "silent-failure defect (PC-06).",
+    note:
+      "To be tested by the owner. Note the wiring: this handler builds `new EventBridgeClient({})` " +
+      "with no endpoint override — the only publisher in `src/` that does — so `event_capture.ts` " +
+      "cannot see it. PC-05 needs AWS_ENDPOINT_URL_EVENTBRIDGE and the Cognito stub needs " +
+      "AWS_ENDPOINT_URL_COGNITO_IDENTITY_PROVIDER, both set before a dynamic import.",
   },
   {
     what: "Face-recognition happy paths (W-04, W-06, CW-06, S-01 FACE)",
