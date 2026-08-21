@@ -40,6 +40,7 @@ The backend uses a **CQRS (Command Query Responsibility Segregation)** pattern d
 - [[Services/API_Reference_and_Tests|Complete API Reference & Test Catalog]]
 - [[Runbooks/Local_Testing|Local Development & Emulation Guide]]
 - [[Testing/Test_Report|Latest API Test Report (generated)]]
+- `Sessions/` — one log per session; read the newest only
 
 ---
 

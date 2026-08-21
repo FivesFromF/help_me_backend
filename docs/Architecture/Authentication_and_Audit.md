@@ -17,7 +17,8 @@ Incoming HTTP Request
          │
          ├─── Public Path (/health, /signin)? ───► Next() [Allow without auth]
          │
-         ├─── Development / Test Mode Header? ───► Populate req.auth from x-cognito-id / x-role
+         ├─── x-cognito-id header present? ──────► Populate req.auth from x-cognito-id / x-role
+         │                                          ⚠️ ungated — see the warning below
          │
          └─── Production Bearer JWT Header? ─────► Verify with aws-jwt-verify (CognitoJwtVerifier)
                                                         │
@@ -27,6 +28,29 @@ Incoming HTTP Request
                                                         │
                                                         └── Invalid? ─► Log warning, Next() (requireRole rejects)
 ```
+
+> **⚠️ The `x-cognito-id` header path is not gated by `SKIP_AUTH`.**
+> `auth.ts` defines `SKIP_AUTH` but never tests it on that branch:
+>
+> ```ts
+> const headerId = req.headers["x-cognito-id"] as string | undefined;
+> if (headerId) { req.auth = { userId: headerId, role: extractRole([headerRole ?? ""]) }; return next(); }
+> ```
+>
+> The branch is therefore live wherever the service runs, not only in development. Verified
+> 2026-08-21 against the containers, which do **not** receive `SKIP_AUTH`:
+>
+> | Request | Response |
+> | :-- | :-- |
+> | no auth | `401` |
+> | `x-cognito-id: totally-made-up-user` | `404` — authenticated as that user, then not-found |
+> | ` + x-role: admin` | `403` — role taken from the header, then RBAC applied |
+>
+> The `404`/`403` come from the authorization layer; authentication was already skipped. Anyone
+> who can reach the API can act as any citizen whose `cognitoId` they know, and can choose their
+> own role. Gating the branch behind `SKIP_AUTH` is the fix; note that the whole
+> [[Services/API_Reference_and_Tests|API suite]] authenticates by header and must then run with
+> `SKIP_AUTH=true`.
 
 ### RBAC Enforcement (`requireRole`)
 

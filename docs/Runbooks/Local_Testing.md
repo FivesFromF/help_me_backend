@@ -70,10 +70,28 @@ env -u ACCESS_SESSIONS_TABLE -u AWS_ENDPOINT_URL npm run test:api
 
 ### Table names
 
+### ⚠️ Three bucket names, none of them agreeing
+
+A presigned upload URL is signed for a bucket the local emulator does not have:
+
+| Name | Where | Used for |
+| :-- | :-- | :-- |
+| `helpme-avatars-bucket` | `.env` → `AWS_S3_BUCKET` | what `s3.service.ts` actually signs |
+| `helpme-avatars-local` | `local-infra/serverless.yml` | what `serverless-s3-local` creates |
+| `S3_AVATARS_BUCKET_NAME` | `upload.routes.ts:21` | read into a variable that is never used |
+
+Until the first two match, a real `PUT` to the presigned URL will not land, which is what blocks
+testing the S3 → SQS → `worker.py` leg. The third is dead code.
+
+### Table names
+
 `serverless.yml` provisions `helpme-scan-jobs`, `helpme-access-sessions` and `helpme-audit-logs`.
 Override them only with names that actually exist, and note that the audit worker reads
 **`AUDIT_TABLE_NAME`** — `AUDIT_LOGS_TABLE` is a leftover from the retired ECS stack and is read by
-nothing in `src/`.
+nothing in `src/`. Unlike `SCAN_JOBS_TABLE`, which `job.service.ts` defaults to `helpme-scan-jobs`,
+the audit worker has no fallback: without `AUDIT_TABLE_NAME` it logs
+`[audit] AUDIT_TABLE_NAME not set` and drops every event, so the whole audit trail goes missing
+while every HTTP status stays green.
 
 ---
 
@@ -136,12 +154,20 @@ victim-access case V-01 would still *pass*, because `hasActiveSession()` denies 
 error.
 
 The EventBridge emulator (`:4010`) is only needed if you want the event path to reach the real
-workers *in the background*. The §10 checks invoke the worker handlers directly instead, so they
-need no emulator either — and note that the audit worker reads `AUDIT_TABLE_NAME`, which `.env`
-does not set: the suite defaults it to `helpme-audit-logs`, but a worker run by hand will drop
-every event until you export it. The seven §9 checks do not use it: `test/api-test/event_capture.ts` stands up its own sink
-on `:4610` and repoints `EVENTBRIDGE_ENDPOINT` at it for the duration of the run, which is why the
-`[events] failed to publish` warnings no longer appear during `npm run test:api`.
+workers *in the background*. The tests supply their own sinks instead:
+
+| Sink | Port | Used by | Why |
+| :-- | :-- | :-- | :-- |
+| `test/api-test/event_capture.ts` | `4610` | §9 | repoints `EVENTBRIDGE_ENDPOINT`, so no emulator is needed and nothing collides with `:4010` |
+| `test/api-test/smtp_capture.ts` | `2525` | §10 | `.env` points `SMTP_HOST` at a real provider; no automated run may send real mail |
+
+That is why `[events] failed to publish` warnings no longer appear during `npm run test:api`. Both
+sinks must be wired **before** the modules they redirect are imported — `events.service.ts`, the
+workers and `s3.service.ts` all bind endpoint, table and SMTP config into module-level constants at
+import time. `event_capture.ts` is therefore the first import in `index.ts`, and the §10 group uses
+dynamic `await import()`.
+
+To send a real alert on purpose, use `npm run test:notify -- <address>` (see below).
 
 One check fails by design: `R-03` reproduces an open consent defect — see
 `test/api-test/README.md` note F.
