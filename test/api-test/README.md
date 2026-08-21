@@ -3,7 +3,37 @@
 API-level test cases only — HTTP request in, status + body out. Worker, AI-model and
 infrastructure behaviour is out of scope here.
 
-Run: `npm run test:api` (in-process Express apps on ephemeral ports; no containers needed).
+Run: `npm run test:api` (in-process Express apps on ephemeral ports).
+
+**39 of these cases execute today**; 38 pass and R-03 fails against a real defect (note F).
+Everything still unimplemented is blocked on the AI service — the face-recognition happy paths
+(W-04, W-06, CW-06, and the `method: "FACE"` branch of S-01) need the Python pipeline running, and
+§9's event assertions need the EventBridge emulator on `:4010`.
+
+### Prerequisites
+
+| Needs | Cases | How |
+| :-- | :-- | :-- |
+| Postgres + pgvector | all | `docker compose up -d db` |
+| DynamoDB on `:8001` | W-03, S-07, V-01–V-04 | `docker compose up -d dynamodb dynamodb-init` |
+| AI service | W-04, W-06, CW-06, S-01 (FACE) | `cd src/services/ai-server && python main.py` |
+
+The victim-access and job-polling cases need real DynamoDB tables. Both come from
+`docker-compose.yaml`, same as Postgres:
+
+```bash
+docker compose up -d db dynamodb dynamodb-init
+```
+
+`dynamodb` is DynamoDB Local on `:8001`, backed by the `dynamodb_data` volume so tables survive a
+restart. `dynamodb-init` creates `helpme-access-sessions` (PK `session_id`), `helpme-scan-jobs`
+(PK `job_id`) and `helpme-audit-logs` (PK `actor_id`, SK `timestamp`), then exits — it is
+idempotent, so it is safe on every `up`. Set `DYNAMODB_ENDPOINT="http://localhost:8001"` in `.env`
+for the in-process suite (the containerised servers get `http://dynamodb:8000` from compose).
+
+Skip this and those cases fail with `ECONNREFUSED 127.0.0.1:8001` — except **V-01, which still
+passes for the wrong reason**, because `hasActiveSession()` denies on any DynamoDB error. It is
+V-02 and V-03 together that prove authorization actually works.
 
 ## Conventions
 
@@ -76,6 +106,37 @@ as a citizen and passes `requireRole(["citizen"])` — CW-03 returns **200**, no
 fail-open default and disagrees with the three-role model (citizen / staff / admin) used by
 `CLAUDE.md` and the Flutter app. Verified 2026-08-20. To assert a real rejection, use
 `x-role: admin` against a citizen-only route (CW-03b).
+
+## 3b. Citizen information registration
+
+Implemented in `registration.api.test.ts`. There is no `/user/register` route (note A) — the
+Cognito trigger creates the skeleton row and the citizen declares their information through
+`PUT /api/citizen/profile`. This suite seeds and tears down its own citizen so the consent cases
+start from `consentRegulation: false` regardless of suite order.
+
+| ID | Method | Path | Body / condition | Expect |
+| :-- | :-- | :-- | :-- | :-- |
+| R-01 | PUT | `/api/citizen/profile` | full first declaration | **200** + every field persisted to the row |
+| R-02 | GET | `/api/citizen/profile` | after R-01 | **200**, values match what was declared |
+| R-03 | PUT | `/api/citizen/profile` | consent is `false`, body sets only `phone` | **200** with consent still `false` — **fails today, see note F** |
+| R-04 | PUT | `/api/citizen/profile` | `consentRegulation: false` | **200**, stored as `false` |
+| R-05 | PUT | `/api/citizen/profile` | `x-role: admin` | **403** (route is citizen-only) |
+| R-06 | PUT | `/api/citizen/profile` | `x-role: staff` | **200** — fail-open, see note D |
+| R-07 | PUT | `/api/citizen/profile` | `x-cognito-id` with no citizen row | **404** `Profile not found` |
+| R-08 | GET | `/api/citizen/profile` | `x-cognito-id` with no citizen row | **404** `Profile not found` |
+
+R-01 asserts against the database row rather than the echoed response, because the handler returns
+the Prisma result directly — asserting on the response alone would not catch a field that was
+dropped before the write.
+
+**Note F — any profile edit silently grants consent.** `src/services/write-server/routes/citizen.routes.ts:30`
+writes `consentRegulation: body.consentRegulation ?? true`, so a request that never mentions
+consent — a phone-number correction, say — flips a previously withdrawn `false` back to `true`.
+Line 29 does the same for `firstDeclareProfile`, so a routine edit also re-marks the profile as a
+first declaration. Because consent is the platform's regulatory record (it emits
+`user.consent_accepted` to the audit bus), this manufactures consent the citizen never gave.
+R-03 is the reproduction and **is expected to fail until the `?? true` defaults become
+`?? undefined`**. Verified 2026-08-20.
 
 ## 4. Citizen — read
 

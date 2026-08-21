@@ -177,4 +177,61 @@ export async function runCitizenApiTests(
       res.status === 200 && Array.isArray(res.body.tags)
     );
   }
+
+  // 1.8 PUT /api/citizen/medical-record — citizen row absent (CW-05)
+  {
+    const res = await performRequest(
+      writeApp,
+      "PUT",
+      "/api/citizen/medical-record",
+      { "x-cognito-id": `cognito-absent-${Date.now()}`, "x-role": "citizen" },
+      { bloodGroup: "A+" }
+    );
+    recordTest(
+      results,
+      "Citizen API",
+      "Reject medical record write for absent citizen row",
+      "/api/citizen/medical-record",
+      "PUT",
+      404,
+      res.status,
+      res.status === 404
+    );
+  }
+
+  // 1.9 GET /api/citizen/medical-record — citizen exists but has no record (CR-04)
+  // A missing *record* is 200 with an empty object; only a missing *citizen* is 404.
+  {
+    const bareCognitoId = `cognito-norec-${Date.now()}`;
+    const bare = await prisma.citizen.create({
+      data: {
+        cognitoId: bareCognitoId,
+        email: `norec-${Date.now()}@helpme.local`,
+        fullName: "No Record Citizen",
+      },
+    });
+    try {
+      const res = await performRequest(readApp, "GET", "/api/citizen/medical-record", {
+        "x-cognito-id": bareCognitoId,
+        "x-role": "citizen",
+      });
+      const isEmptyObject =
+        res.body?.record !== null &&
+        typeof res.body?.record === "object" &&
+        Object.keys(res.body.record).length === 0;
+      recordTest(
+        results,
+        "Citizen API",
+        "Absent medical record returns 200 with empty object (not 404)",
+        "/api/citizen/medical-record",
+        "GET",
+        200,
+        res.status,
+        res.status === 200 && isEmptyObject,
+        isEmptyObject ? undefined : `Expected {}, got ${JSON.stringify(res.body?.record)?.slice(0, 120)}`
+      );
+    } finally {
+      await prisma.citizen.deleteMany({ where: { id: bare.id } });
+    }
+  }
 }

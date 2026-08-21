@@ -7,6 +7,7 @@ import { TestResult, createWriteApp, createReadApp, performRequest, recordTest }
 import { runCitizenApiTests } from "./citizen.api.test";
 import { runNfcScanApiTests } from "./nfc_scan.api.test";
 import { runEmergencyApiTests } from "./emergency.api.test";
+import { runRegistrationApiTests } from "./registration.api.test";
 
 async function runAllGroupedApiTests() {
   console.log("\n" + "=".repeat(78));
@@ -68,6 +69,7 @@ async function runAllGroupedApiTests() {
   await runCitizenApiTests(results, testCognitoId, testEmail, citizenId);
   await runNfcScanApiTests(results, testCognitoId, citizenId, testTagId, validHashId);
   await runEmergencyApiTests(results, citizenId, testCognitoId);
+  await runRegistrationApiTests(results);
 
   // 3. Teardown
   await prisma.nfcTag.deleteMany({ where: { citizenId: citizenId } });

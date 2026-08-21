@@ -13,13 +13,25 @@ npm run test:api
 ```
 
 The suite lives in `test/api-test/` — `index.ts` seeds a citizen and runs the per-domain files
-(`citizen.api.test.ts`, `nfc_scan.api.test.ts`, `emergency.api.test.ts`), then tears the data down.
+(`registration.api.test.ts`, `citizen.api.test.ts`, `nfc_scan.api.test.ts`,
+`emergency.api.test.ts`), then tears the data down.
 It builds the Express routers in-process on ephemeral ports, so no containers are required.
 
-**The full test-case catalog is `test/api-test/README.md`** — around 40 cases covering every route,
-including the ones the automated runner does not yet execute (role rejection, expired sessions,
-absent-record vs. absent-citizen, unknown tags). Keep that file as the source of truth for expected
-status codes; the table at the bottom of this document lists only the 18 that run today.
+There is **no filter flag or `-t` option** — the runner always executes every group, and the groups
+share the fixtures (citizen id, hash id, tag id) that `index.ts` seeds, so a group cannot simply be
+invoked on its own. To narrow a run, comment out calls in `runAllGroupedApiTests()`.
+
+**The full test-case catalog is `test/api-test/README.md`** — keep that file as the source of
+truth for expected status codes. As of 2026-08-20 the runner executes **39 checks, 38 passing**:
+role rejection, expired sessions, absent-record vs. absent-citizen and unknown tags are all covered
+now. The single failure, `R-03`, reproduces a real consent defect (note F in that file).
+
+Still not executed: the face-recognition happy paths (`W-04`, `W-06`, `CW-06`, and the
+`method: "FACE"` branch of `S-01`), which need the Python AI service running, and the §9 event
+assertions, which need the EventBridge emulator.
+
+Seven checks need DynamoDB on `:8001` (`upload-url`, scan-job polling, the four victim-access
+cases) — see the prerequisites table in `test/api-test/README.md`.
 
 ---
 
@@ -304,7 +316,7 @@ Two endpoints do not behave the way this reference otherwise implies. Both are d
 
 ---
 
-## 📊 Summary of Test Suites in `test/api-test/`
+## 📊 Checks executed by `npm run test:api` (39 total)
 
 | # | Endpoint | Method | Suite | Expected | Verified Behavior |
 |---|---|---|---|---|---|
@@ -326,3 +338,27 @@ Two endpoints do not behave the way this reference otherwise implies. Both are d
 | 16 | `/api/v1/read/scan` | `POST` | Read | `403` | Tampered NFC hash signature rejection |
 | 17 | `/api/v1/read/victim/:victimId` | `GET` | Read | `403` | Unauthorized victim record access block |
 | 18 | `/api/v1/read/scan/jobs/:jobId` | `GET` | Read | `404` | Non-existent scan job 404 response |
+| 19 | `/api/v1/write/citizen/medical-record` | `PUT` | Write | `404` | Medical write for absent citizen row |
+| 20 | `/api/v1/read/citizen/medical-record` | `GET` | Read | `200` | Absent record → `{}`, not 404 |
+| 21 | `/api/v1/write/nfc` | `POST` | Write | `400` | Admin registration without `citizenId` |
+| 22 | `/api/v1/write/nfc` | `POST` | Write | `500` | Admin `citizenId` unvalidated — FK violation (should be 404) |
+| 23 | `/api/v1/write/nfc` | `POST` | Write | `200` | Re-registering a tag upserts; `hashIdToBurn` stable |
+| 24 | `/api/v1/read/scan` | `POST` | Read | `400` | NFC scan missing `tagId`/`hashId` |
+| 25 | `/api/v1/read/scan` | `POST` | Read | `404` | Unknown or inactive tag |
+| 26 | `/api/v1/read/scan` | `POST` | Read | `400` | FACE scan without `imageBase64` |
+| 27 | `/api/v1/read/scan` | `POST` | Read | `400` | Unsupported method (QR) |
+| 28 | `/api/v1/write/emergency/report` | `POST` | Write | `201` | Anonymous report (`victimId: null`) |
+| 29 | `/api/v1/read/victim/:victimId` | `GET` | Read | `200` | Active session grants access |
+| 30 | `/api/v1/read/victim/:victimId` | `GET` | Read | `403` | Expired session refused |
+| 31 | `/api/v1/read/victim/:victimId` | `GET` | Read | `404` | Session valid, victim row absent |
+| 32 | `/api/v1/write/citizen/profile` | `PUT` | Registration | `200` | First declaration persists every field |
+| 33 | `/api/v1/read/citizen/profile` | `GET` | Registration | `200` | Declared info reads back |
+| 34 | `/api/v1/write/citizen/profile` | `PUT` | Registration | `200` | ❌ Partial edit silently grants consent (note F) |
+| 35 | `/api/v1/write/citizen/profile` | `PUT` | Registration | `200` | Explicit `consentRegulation:false` stored |
+| 36 | `/api/v1/write/citizen/profile` | `PUT` | Registration | `403` | Admin cannot declare citizen info |
+| 37 | `/api/v1/write/citizen/profile` | `PUT` | Registration | `200` | `staff` falls through to citizen (fail-open) |
+| 38 | `/api/v1/write/citizen/profile` | `PUT` | Registration | `404` | Declaration for non-existent citizen row |
+| 39 | `/api/v1/read/citizen/profile` | `GET` | Registration | `404` | Unregistered profile |
+
+Row 34 is the only failing check — it is a deliberate reproduction of the consent defect, not a
+flaky test. It turns green the moment `citizen.routes.ts:29-30` stop defaulting to `true`.
