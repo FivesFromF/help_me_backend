@@ -1,0 +1,8 @@
+{
+  "userIgnoreFilters": [
+    "node_modules/",
+    "local-infra/node_modules/",
+    "local-infra/.dynamodb/",
+    "dist/"
+  ]
+}
