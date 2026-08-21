@@ -15,6 +15,7 @@ import { runRegistrationApiTests } from "./registration.api.test";
 import { runEventApiTests } from "./events.api.test";
 import { runWorkerApiTests } from "./workers.api.test";
 import { runJobApiTests } from "./jobs.api.test";
+import { runFaceApiTests } from "./face.api.test";
 import { writeTestReport } from "./report";
 
 async function runAllGroupedApiTests() {
@@ -82,6 +83,7 @@ async function runAllGroupedApiTests() {
   await runEventApiTests(results, testCognitoId, citizenId, testTagId, validHashId);
   await runWorkerApiTests(results, citizenId, testTagId, validHashId);
   await runJobApiTests(results, testCognitoId, citizenId);
+  await runFaceApiTests(results, testCognitoId, citizenId);
 
   // 3. Teardown
   await stopEventCapture();

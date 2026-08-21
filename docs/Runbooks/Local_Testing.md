@@ -129,6 +129,12 @@ pip install -r requirements.txt
 python main.py
 ```
 
+`main.py` is an **SQS consumer with no HTTP surface** — it serves the async S3 → SQS pipeline only.
+It does not back `POST /api/citizen/face` or `POST /api/scan { method: "FACE" }`: those go through
+`shared/services/ai.service.ts`, which invokes an AI Lambda named by `AI_LAMBDA_NAME` and throws
+`Synchronous face extraction endpoint is deprecated` when that is unset — which it is, everywhere.
+Starting this worker therefore unblocks no API check; see §13 of `test/api-test/README.md`.
+
 ---
 
 ## 🧪 Step 4: Run the API Test Suite
@@ -137,7 +143,7 @@ python main.py
 npm run test:api
 ```
 
-Builds the read/write routers in-process on ephemeral ports and runs **59 checks** against the
+Builds the read/write routers in-process on ephemeral ports and runs **63 checks** against the
 local Postgres. Every run overwrites `docs/Testing/Test_Report.md` with the outcome. It needs the
 database (Step 1). Seventeen of those checks (`upload-url`, scan-job polling, the four
 victim-access cases, five worker-effect cases and all six async-job cases) additionally need
@@ -170,7 +176,8 @@ dynamic `await import()`.
 To send a real alert on purpose, use `npm run test:notify -- <address>` (see below).
 
 One check fails by design: `R-03` reproduces an open consent defect — see
-`test/api-test/README.md` note F.
+`test/api-test/README.md` note F. The four `F-*` checks need nothing beyond Postgres: they assert
+that the deprecated synchronous face path fails closed (500, no write, no event).
 
 The full catalogue of expected status codes per endpoint is `test/api-test/README.md`.
 

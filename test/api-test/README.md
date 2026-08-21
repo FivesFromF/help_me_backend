@@ -5,10 +5,11 @@ infrastructure behaviour is out of scope here.
 
 Run: `npm run test:api` (in-process Express apps on ephemeral ports).
 
-**59 of these cases execute today**; 58 pass and R-03 fails against a real defect (note F).
-Two groups are written but not executing: the face-recognition happy paths (W-04, W-06, CW-06, and
-the `method: "FACE"` branch of S-01) are blocked on the Python pipeline, and the `post-confirmation`
-cases (§13, PC-01–PC-06) are designed but not yet coded — the owner is taking those.
+**63 of these cases execute today**; 62 pass and R-03 fails against a real defect (note F).
+The face-recognition *happy* paths (W-04, W-06, CW-06, and the `method: "FACE"` branch of S-01)
+cannot pass at all: that route is deprecated in code and fails closed, which §13 now asserts
+instead. The `post-confirmation` cases (§14, PC-01–PC-06) are designed but not yet coded — the
+owner is taking those.
 
 Every run overwrites `docs/Testing/Test_Report.md` with the result: totals per suite, the failures
 with their detail lines, and the full check list.
@@ -19,7 +20,7 @@ with their detail lines, and the full check list.
 | :-- | :-- | :-- |
 | Postgres + pgvector | all | `docker compose up -d db` |
 | DynamoDB on `:8001` | W-03, S-07, V-01–V-04 | `docker compose up -d dynamodb dynamodb-init` |
-| AI service | W-04, W-06, CW-06, S-01 (FACE) | `cd src/services/ai-server && python main.py` |
+| Nothing extra | F-01–F-04 | the sync face path is deprecated in code — see §13; no AI service can satisfy W-04, W-06, CW-06 or S-01 (FACE) |
 | Nothing extra | EV-01–EV-07 | the suite supplies its own event sink on `:4610` |
 | DynamoDB on `:8001` | WK-01–WK-04, WK-07 | the workers' own tables — same compose services |
 | Nothing extra | WK-05, WK-06 | the suite supplies its own SMTP sink on `:2525` |
@@ -232,7 +233,9 @@ EV-06 asserts the bus, not just the event: `grant-permission-worker` and `notifi
 subscribe to `victim.identified` on `helpme-emergency-bus`, so publishing it to the system bus would
 strand every downstream alert while the scan itself still returned `200`.
 
-Not yet asserted: `citizen.face.registered` (POST `/api/citizen/face`), which needs the AI service.
+`citizen.face.registered` (POST `/api/citizen/face`) is asserted **negatively** by F-03: the
+publish at `citizen.routes.ts:140` sits below a call that always throws, so it is unreachable
+until the sync path is revived or removed.
 
 ## 10. Status code summary
 
@@ -244,7 +247,7 @@ Not yet asserted: `citizen.face.registered` (POST `/api/citizen/face`), which ne
 | 401 | No or invalid authentication |
 | 403 | Wrong role, bad hash signature, or no active access session |
 | 404 | Citizen / tag / job / victim not found |
-| 500 | Unhandled error (AI service down, DB unreachable) |
+| 500 | Unhandled error (deprecated sync face path, DB unreachable) |
 
 ## 11. Worker effects (§10 in the runner output)
 
@@ -320,7 +323,34 @@ will not land until those agree — see the pending list in `docs/Testing/Test_R
 
 ---
 
-## 13. `post-confirmation` worker (not implemented — owner)
+## 13. The deprecated synchronous face path (§12 in the runner output)
+
+Implemented in `face.api.test.ts`. Needs no AI service, no face image and no GPU.
+
+`shared/services/ai.service.ts:6` invokes an AI Lambda named by **`AI_LAMBDA_NAME`**; with that
+variable unset it throws *"Synchronous face extraction endpoint is deprecated. Use async Presigned
+S3 upload + SQS AI Worker flow."* before reading the payload. `AI_LAMBDA_NAME` is set **nowhere** —
+not `.env`, not any `infra/**.tf`, not `docker-compose.yaml` — so both callers fail closed in every
+environment. Running `python main.py` cannot change that: `main.py` is an SQS consumer with no HTTP
+surface, and nothing on this path reaches it.
+
+| ID | Case | Expected |
+| :-- | :-- | :-- |
+| F-01 | `POST /api/citizen/face` with `imageBase64` | **500**, `error` names the deprecation |
+| F-02 | the citizen row after F-01 | `face_embedding` still null, `is_verified` still false |
+| F-03 | events after F-01 | no `citizen.face.registered` |
+| F-04 | `POST /api/scan` `{ method: "FACE", imageBase64 }` | **500**, and no `victim.identified` |
+
+F-02 is the one that would catch a partial write: `citizen.routes.ts:135` is the only statement in
+`src/` that sets `is_verified = true`, so either column moving means the UPDATE ran after all.
+F-04 matters for the same reason EV-06 does — a `victim.identified` escaping a failed scan would
+grant an access session and page a next-of-kin for a match that never happened.
+
+These pin the behaviour as it stands; they are not face-recognition coverage. That lives in
+`test/ai-test/` (the pipeline) and in the async leg of §12, which is still blocked on the bucket
+names.
+
+## 14. `post-confirmation` worker (not implemented — owner)
 
 Not written yet. Documented here so the case is designed before it is coded, and carried into
 every report run by the pending list in `report.ts`.

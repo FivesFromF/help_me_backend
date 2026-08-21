@@ -22,7 +22,7 @@ share the fixtures (citizen id, hash id, tag id) that `index.ts` seeds, so a gro
 invoked on its own. To narrow a run, comment out calls in `runAllGroupedApiTests()`.
 
 **The full test-case catalog is `test/api-test/README.md`** — keep that file as the source of
-truth for expected status codes. As of 2026-08-21 the runner executes **59 checks, 58 passing**:
+truth for expected status codes. As of 2026-08-21 the runner executes **63 checks, 62 passing**:
 role rejection, expired sessions, absent-record vs. absent-citizen, unknown tags, the §9 domain
 events, the worker effects those events trigger and the async job lifecycle are all covered now. The single failure, `R-03`, reproduces a real consent defect (note F in
 that file).
@@ -30,9 +30,12 @@ that file).
 Each run overwrites [[Testing/Test_Report|the generated test report]] with per-suite totals, the
 failure details and the full check list.
 
-Still not executed: the face-recognition happy paths (`W-04`, `W-06`, `CW-06`, and the
-`method: "FACE"` branch of `S-01`), which need the Python AI service running, along with the
-`citizen.face.registered` event they would emit.
+Still not executed: the face-recognition *happy* paths (`W-04`, `W-06`, `CW-06`, and the
+`method: "FACE"` branch of `S-01`). No AI service can make them pass — `ai.service.ts` throws
+`Synchronous face extraction endpoint is deprecated` unless `AI_LAMBDA_NAME` names a deployed
+Lambda, and that variable is set nowhere in this repo. `F-01`–`F-04` assert the resulting 500, the
+untouched row and the unreachable `citizen.face.registered` publish instead; real biometric
+coverage lives in `test/ai-test/` and in the async S3 → SQS leg.
 
 Seventeen checks need DynamoDB on `:8001` (`upload-url`, scan-job polling, the four victim-access
 cases, five worker-effect cases and all six async-job cases) — see the prerequisites table in

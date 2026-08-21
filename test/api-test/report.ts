@@ -43,7 +43,7 @@ const PENDING: { what: string; why: string; note: string }[] = [
       "whose `catch` only logs, and `main` returns the event regardless, so a Cognito error (the " +
       "first await, before the insert) or the `email @unique` collision on a second attribute-less " +
       "signup leaves a confirmed user with no profile and no retry. Six cases are designed in " +
-      "`test/api-test/README.md` §13: row created (PC-01), group membership honoured (PC-02, " +
+      "`test/api-test/README.md` §14: row created (PC-01), group membership honoured (PC-02, " +
       "PC-03), idempotency (PC-04), `user.signed_up` reaching the audit trail (PC-05), and the " +
       "silent-failure defect (PC-06).",
     note:
@@ -53,9 +53,17 @@ const PENDING: { what: string; why: string; note: string }[] = [
       "AWS_ENDPOINT_URL_COGNITO_IDENTITY_PROVIDER, both set before a dynamic import.",
   },
   {
-    what: "Face-recognition happy paths (W-04, W-06, CW-06, S-01 FACE)",
-    why: "Need the Python AI service in the request path, plus a real face image.",
-    note: "The AI pipeline itself is covered separately by `test/ai-test/`.",
+    what: "Face recognition through the API (W-04, W-06, CW-06, S-01 FACE)",
+    why:
+      "These happy paths cannot pass as written: `ai.service.ts:6` invokes an AI Lambda named by " +
+      "AI_LAMBDA_NAME and throws \"Synchronous face extraction endpoint is deprecated\" when it is " +
+      "unset — and it is set nowhere (`.env`, `infra/**.tf`, `docker-compose.yaml`). Running " +
+      "`python main.py` cannot help; `main.py` is an SQS consumer with no HTTP surface. F-01–F-04 " +
+      "(§13) now pin the 500 and the absence of any write or event instead.",
+    note:
+      "Real biometric coverage lives in `test/ai-test/` (the pipeline) and in the async " +
+      "S3 → SQS → worker.py leg below. Reviving the sync path means setting AI_LAMBDA_NAME and " +
+      "deploying that Lambda — at which point F-01–F-04 are the cases to rewrite.",
   },
   {
     what: "The S3 → SQS → worker.py leg",
