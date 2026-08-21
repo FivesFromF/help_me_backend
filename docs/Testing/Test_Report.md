@@ -2,8 +2,8 @@
 
 > [!warning] Generated file — `npm run test:api` overwrites it on every run. Edit `test/api-test/README.md` instead; that is the catalogue of intended cases.
 
-**Run at:** 2026-08-21 16:06:02 UTC  
-**Result:** 58/59 passed (98%)
+**Run at:** 2026-08-21 16:33:08 UTC  
+**Result:** 62/63 passed (98%)
 
 ---
 
@@ -19,7 +19,8 @@
 | Events | 7 | 7 |
 | Workers | 7 | 7 |
 | Async Jobs | 6 | 6 |
-| **Total** | **58** | **59** |
+| Face (sync path) | 4 | 4 |
+| **Total** | **62** | **63** |
 
 ## ❌ Failures
 
@@ -32,27 +33,27 @@
 
 ## ⏳ Not yet covered
 
-58/59 passing says nothing about what was never checked. Open gaps, newest concern first:
+62/63 passing says nothing about what was never checked. Open gaps, newest concern first:
 
 ### 🔴 Header auth bypass (`x-cognito-id`)
 
 - **Why it matters:** `auth.ts` defines SKIP_AUTH but never checks it on the header branch, so a forged `x-cognito-id` authenticates as that user with no token — confirmed against the running containers (no header → 401, forged header → 404, i.e. authenticated then not-found). `x-role` sets the role the same way.
 - **Status:** To be tested by the owner. Fixing it means the 59 checks here must run with SKIP_AUTH=true, since every one of them authenticates by header.
 
-### `post-confirmation` worker
+### 🟠 `post-confirmation` worker (PC-01–PC-06)
 
-- **Why it matters:** The only worker with no coverage. It creates the citizen skeleton row on Cognito signup, so a regression breaks every new registration silently — nothing else writes that row.
-- **Status:** To be tested next.
+- **Why it matters:** The only worker with no coverage, and the sole writer of the citizen skeleton row on Cognito signup — no HTTP route creates a citizen, so a regression breaks every new registration silently. Worse, the handler cannot report its own failure: the whole body sits in one `try` whose `catch` only logs, and `main` returns the event regardless, so a Cognito error (the first await, before the insert) or the `email @unique` collision on a second attribute-less signup leaves a confirmed user with no profile and no retry. Six cases are designed in `test/api-test/README.md` §14: row created (PC-01), group membership honoured (PC-02, PC-03), idempotency (PC-04), `user.signed_up` reaching the audit trail (PC-05), and the silent-failure defect (PC-06).
+- **Status:** To be tested by the owner. Note the wiring: this handler builds `new EventBridgeClient({})` with no endpoint override — the only publisher in `src/` that does — so `event_capture.ts` cannot see it. PC-05 needs AWS_ENDPOINT_URL_EVENTBRIDGE and the Cognito stub needs AWS_ENDPOINT_URL_COGNITO_IDENTITY_PROVIDER, both set before a dynamic import.
 
-### Face-recognition happy paths (W-04, W-06, CW-06, S-01 FACE)
+### Face recognition through the API (W-04, W-06, CW-06, S-01 FACE)
 
-- **Why it matters:** Need the Python AI service in the request path, plus a real face image.
-- **Status:** The AI pipeline itself is covered separately by `test/ai-test/`.
+- **Why it matters:** These happy paths cannot pass as written: `ai.service.ts:6` invokes an AI Lambda named by AI_LAMBDA_NAME and throws "Synchronous face extraction endpoint is deprecated" when it is unset — and it is set nowhere (`.env`, `infra/**.tf`, `docker-compose.yaml`). Running `python main.py` cannot help; `main.py` is an SQS consumer with no HTTP surface. F-01–F-04 (§13) now pin the 500 and the absence of any write or event instead.
+- **Status:** Real biometric coverage lives in `test/ai-test/` (the pipeline) and in the async S3 → SQS → worker.py leg below. Reviving the sync path means setting AI_LAMBDA_NAME and deploying that Lambda — at which point F-01–F-04 are the cases to rewrite.
 
 ### The S3 → SQS → worker.py leg
 
 - **Why it matters:** §11 covers both ends (job created, job polled) but not the middle: a real upload to the presigned URL, the ObjectCreated event, and the queue delivery.
-- **Status:** Blocked on a config mismatch too — `.env` signs URLs for AWS_S3_BUCKET=helpme-avatars-bucket while local-infra creates helpme-avatars-local, and upload.routes.ts reads a third name (S3_AVATARS_BUCKET_NAME) into a variable it never uses.
+- **Status:** The bucket names now agree (`helpme-avatars-local` in s3.service.ts, local-infra and all three compose services; the unused S3_AVATARS_BUCKET_NAME read is deleted) and `docker compose up -d ai-server` reaches SQS/S3/EventBridge on the host stack. Two things still stand between here and an end-to-end run: `.env` must carry AWS_S3_BUCKET=helpme-avatars-local (it is not in git), and nothing locally turns an S3 ObjectCreated into an SQS message — local-infra defines the queue but no notification rule, so a job has to be enqueued by hand.
 
 ## 🧾 All checks
 
@@ -117,6 +118,10 @@
 | 57 | ✅ | Async Jobs | GET | `/api/scan/jobs/:jobId` | Polling a fresh job reports PENDING | 200 | 200 |
 | 58 | ✅ | Async Jobs | GET | `/api/scan/jobs/:jobId` | Completed job surfaces the worker's match result | 200 | 200 |
 | 59 | ✅ | Async Jobs | GET | `/api/scan/jobs/:jobId` | Failed job surfaces the rejection reason | 200 | 200 |
+| 60 | ✅ | Face (sync path) | POST | `/api/citizen/face` | Face registration is deprecated without AI_LAMBDA_NAME | 500 | 500 |
+| 61 | ✅ | Face (sync path) | POST | `/api/citizen/face` | Failed registration leaves face_embedding and is_verified alone | 500 | 500 |
+| 62 | ✅ | Face (sync path) | POST | `/api/citizen/face` | Failed registration publishes no citizen.face.registered | 500 | 500 |
+| 63 | ✅ | Face (sync path) | POST | `/api/scan` | FACE scan is deprecated and identifies nobody | 500 | 500 |
 
 ---
 

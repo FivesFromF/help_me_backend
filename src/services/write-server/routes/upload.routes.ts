@@ -17,7 +17,7 @@ uploadRoutes.post(
       const { fileType = "image/jpeg", operation = "FACE_SCAN", citizenId } = body;
 
       const jobId = randomUUID();
-      const s3Bucket = process.env.S3_AVATARS_BUCKET_NAME || "helpme-avatars";
+      // Bucket lives in s3.service.ts (AWS_S3_BUCKET) — there is no second name to read here.
       const s3Key = operation === "FACE_ENROLL"
         ? `raw-uploads/${jobId}.jpg`
         : `raw-scans/${jobId}.jpg`;

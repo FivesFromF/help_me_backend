@@ -39,7 +39,7 @@ plugins:
   - serverless-offline            # HTTP Lambda invocation
   - serverless-s3-local           # Local S3 bucket emulator on :4569
   - serverless-dynamodb           # Local DynamoDB on :8001
-  - serverless-offline-sqs        # Local SQS (ElasticMQ) on :9324
+  - serverless-offline-sqs        # SQS *client* only — the queue itself is the `elasticmq` compose service
   - serverless-offline-aws-eventbridge # Local EventBridge on :4010
 
 # ─────────────────────────────────────────────────────────
@@ -52,11 +52,21 @@ custom:
 
   # serverless-s3-local: emulates the avatars S3 bucket
   s3:
-    host: 0.0.0.0
+    # `address` is the bind option (plugin default: "localhost", which resolves to ::1 on Windows
+    # and leaves the server unreachable from containers). `host` is a different setting — where the
+    # plugin makes its own internal S3 calls — and setting it alone binds nothing.
+    address: 0.0.0.0
+    host: 127.0.0.1
     port: 4569
     directory: ./.local-s3        # files are stored here on disk
     cors: false
     allowMismatchedSignatures: true
+    # The plugin defaults these to "S3RVER" and rejects any other key with
+    # 403 InvalidAccessKeyId. `s3.service.ts:9` hardcodes test/test whenever an S3 endpoint is set,
+    # and worker.py does the same — so the emulator has to accept test/test, or every upload
+    # (including every presigned PUT the API hands out) is refused.
+    accessKeyId: test
+    secretAccessKey: test
     buckets:
       - helpme-avatars-local
 
@@ -69,11 +79,12 @@ custom:
       inMemory: true
       migrate: true               # auto-creates tables from resources section
 
-  # serverless-offline-sqs: uses ElasticMQ under the hood (no AWS cost)
+  # serverless-offline-sqs: a client, not a server. It needs a queue system already running —
+  # `docker compose up -d elasticmq` provides it, with the queues declared in elasticmq.conf.
   serverless-offline-sqs:
-    autoCreate: true              # auto-creates queues on startup
+    autoCreate: true              # no-op now that elasticmq.conf declares the queues
     apiVersion: "2012-11-05"
-    endpoint: http://0.0.0.0:9324
+    endpoint: http://127.0.0.1:9324   # connect address: 0.0.0.0 is a bind address, not a target
     region: ap-southeast-1
     accessKeyId: test
     secretAccessKey: test

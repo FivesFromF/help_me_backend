@@ -30,13 +30,25 @@ cd local-infra
 npx serverless offline start
 ```
 
-| Service | Emulator Plugin | Port |
+| Service | Provided by | Port |
 |---|---|---|
 | **S3 Avatars Bucket** | `serverless-s3-local` | `http://localhost:4569` |
 | **DynamoDB (Jobs & Sessions)** | `serverless-dynamodb` | `http://localhost:8001` |
-| **SQS AI Jobs Queue** | `serverless-offline-sqs` | `http://localhost:9324` |
+| **SQS AI Jobs Queue** | **`elasticmq` compose service** — not this stack | `http://localhost:9324` |
 | **EventBridge Bus** | `serverless-offline-aws-eventbridge` | `http://localhost:4010` |
 | **Lambda Handlers** | `serverless-offline` | `http://localhost:3000` |
+
+> ⚠️ **`serverless-offline-sqs` is a client, not a server.** Its own README: "there should be some
+> queue system actually running." Nothing here ran one, so `:9324` had no listener and the AI
+> worker error-looped on `Could not connect to the endpoint URL`. The queue now comes from
+> `docker compose up -d elasticmq`, configured by `local-infra/elasticmq.conf`, which declares
+> `helpme-ai-jobs-queue` and its DLQ up front. Start it whether or not you run this stack.
+
+> ⚠️ **The S3 bind option is `address`, not `host`.** `serverless-s3-local` defaults `address` to
+> `localhost`, which resolves to `::1` on Windows — the server then answers only on IPv6 loopback
+> and is unreachable from any container through `host.docker.internal`. `custom.s3.address` is now
+> `0.0.0.0`; `host` is a different setting (where the plugin makes its own internal calls) and
+> binds nothing. Restart the stack for it to take effect.
 
 ### Pointing the app at the emulators
 
@@ -70,18 +82,25 @@ env -u ACCESS_SESSIONS_TABLE -u AWS_ENDPOINT_URL npm run test:api
 
 ### Table names
 
-### ⚠️ Three bucket names, none of them agreeing
+### 🪣 One local bucket name: `helpme-avatars-local`
 
-A presigned upload URL is signed for a bucket the local emulator does not have:
+Every local surface signs and serves the same bucket:
 
-| Name | Where | Used for |
-| :-- | :-- | :-- |
-| `helpme-avatars-bucket` | `.env` → `AWS_S3_BUCKET` | what `s3.service.ts` actually signs |
-| `helpme-avatars-local` | `local-infra/serverless.yml` | what `serverless-s3-local` creates |
-| `S3_AVATARS_BUCKET_NAME` | `upload.routes.ts:21` | read into a variable that is never used |
+| Where | Value |
+| :-- | :-- |
+| `s3.service.ts:11` (default when `AWS_S3_BUCKET` is unset) | `helpme-avatars-local` |
+| `local-infra/serverless.yml` → `custom.s3.buckets` | `helpme-avatars-local` |
+| `docker-compose.yaml` → write-server, read-server, ai-server | `helpme-avatars-local` |
+| **`.env` → `AWS_S3_BUCKET`** | **must be set to `helpme-avatars-local`** |
 
-Until the first two match, a real `PUT` to the presigned URL will not land, which is what blocks
-testing the S3 → SQS → `worker.py` leg. The third is dead code.
+`.env` is the one file that is not in git, so it is the one you have to keep in step: a stale
+`AWS_S3_BUCKET=helpme-avatars-bucket` signs URLs for a bucket the emulator does not have, and the
+`PUT` fails while `POST /api/upload-url` still returns a healthy `200`.
+
+The old third name is gone: `upload.routes.ts` used to read `S3_AVATARS_BUCKET_NAME` into a
+variable it never used. Production is unaffected either way — Terraform generates the real bucket
+(`infra/modules/s3/main.tf`: `${project_name}-avatars-${random_suffix}`) and injects it as
+`AWS_S3_BUCKET` into the ECS task definitions.
 
 ### Table names
 
@@ -128,6 +147,11 @@ cd src/services/ai-server
 pip install -r requirements.txt
 python main.py
 ```
+
+`docker compose up -d ai-server` now runs the same worker with its endpoints wired (see
+[[Services/AI_Server]]): SQS, S3 and EventBridge come from the **host** stack of Step 2 via
+`host.docker.internal`, DynamoDB and Postgres from the compose network. Start `local-infra` first
+or the worker error-loops on `Could not connect to the endpoint URL`.
 
 `main.py` is an **SQS consumer with no HTTP surface** — it serves the async S3 → SQS pipeline only.
 It does not back `POST /api/citizen/face` or `POST /api/scan { method: "FACE" }`: those go through

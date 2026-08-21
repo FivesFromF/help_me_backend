@@ -80,5 +80,10 @@ creating a `PENDING` job with the right operation, key prefix and TTL, and
 `error`). The worker's DynamoDB write is simulated, so the pipeline itself is *not* under test
 there — that is what `test/ai-test/` is for.
 
-Still uncovered: the middle leg (real upload → `ObjectCreated` → SQS → `worker.py`). See the
-pending list in [[Testing/Test_Report]], including the bucket-name mismatch that blocks it.
+Still uncovered: the middle leg (real upload → `ObjectCreated` → SQS → `worker.py`). The bucket
+names now agree on `helpme-avatars-local` everywhere and the worker reaches SQS, S3, EventBridge,
+DynamoDB and Postgres from its container (see [[Runbooks/Local_Testing]]), but nothing locally turns
+an S3 `ObjectCreated` into an SQS message — `local-infra` declares the queue and no notification
+rule — so a job must be enqueued by hand. `test/ai-test/pipeline_probe.ts` does exactly that: it
+enrolls a face, scans it back and asserts the match, the granted session and the job result. Open
+gaps are tracked in [[Testing/Test_Report]].

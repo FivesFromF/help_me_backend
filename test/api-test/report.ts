@@ -71,9 +71,13 @@ const PENDING: { what: string; why: string; note: string }[] = [
       "§11 covers both ends (job created, job polled) but not the middle: a real upload to the " +
       "presigned URL, the ObjectCreated event, and the queue delivery.",
     note:
-      "Blocked on a config mismatch too — `.env` signs URLs for AWS_S3_BUCKET=helpme-avatars-bucket " +
-      "while local-infra creates helpme-avatars-local, and upload.routes.ts reads a third name " +
-      "(S3_AVATARS_BUCKET_NAME) into a variable it never uses.",
+      "The bucket names now agree (`helpme-avatars-local` in s3.service.ts, local-infra and all " +
+      "three compose services; the unused S3_AVATARS_BUCKET_NAME read is deleted) and " +
+      "`docker compose up -d ai-server` reaches SQS/S3/EventBridge on the host stack. Two things " +
+      "still stand between here and an end-to-end run: `.env` must carry " +
+      "AWS_S3_BUCKET=helpme-avatars-local (it is not in git), and nothing locally turns an S3 " +
+      "ObjectCreated into an SQS message — local-infra defines the queue but no notification rule, " +
+      "so a job has to be enqueued by hand.",
   },
 ];
 

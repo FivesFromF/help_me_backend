@@ -316,10 +316,12 @@ AP-04 and AP-05 hit the *same* job before and after the simulated worker write, 
 is observed rather than assumed. AP-06 matters because the pipeline rejects for real reasons — face
 tilted, anti-spoof, no match — and a responder shown an empty `200` mid-emergency is stranded.
 
-⚠️ Three different bucket names are in play: `.env` signs URLs for `AWS_S3_BUCKET`
-(`helpme-avatars-bucket`), `local-infra` creates `helpme-avatars-local`, and `upload.routes.ts`
-reads `S3_AVATARS_BUCKET_NAME` into a variable it never uses. A real upload against the emulator
-will not land until those agree — see the pending list in `docs/Testing/Test_Report.md`.
+⚠️ The bucket name is now `helpme-avatars-local` on every local surface — the `s3.service.ts`
+default, `local-infra/serverless.yml`, and all three compose services — and the unused
+`S3_AVATARS_BUCKET_NAME` read is gone. `.env` is not in git, so check `AWS_S3_BUCKET` there before
+blaming the emulator. What still blocks the middle of the pipeline is separate: nothing locally
+turns an S3 `ObjectCreated` into an SQS message, so a job must be enqueued by hand — see the
+pending list in `docs/Testing/Test_Report.md`.
 
 ---
 

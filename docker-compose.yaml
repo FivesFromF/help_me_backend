@@ -55,11 +55,49 @@ services:
         aws dynamodb list-tables --endpoint-url $$EP
     restart: "no"
 
+  # SQS for the AI job queue. `serverless-offline-sqs` in local-infra is only a client-side
+  # plugin — it needs a real queue system, and there was none, so :9324 never had a listener.
+  elasticmq:
+    image: softwaremill/elasticmq-native:latest
+    container_name: helpme-elasticmq
+    ports:
+      - "9324:9324"
+    volumes:
+      - ./local-infra/elasticmq.conf:/opt/elasticmq.conf:ro
+    restart: always
+
   ai-server:
     build:
       context: src/services/ai-server
       dockerfile: Dockerfile
     container_name: helpme-ai-server
+    # SQS, S3 and EventBridge live in the `local-infra` serverless stack, which runs on the HOST,
+    # not on this network — hence host.docker.internal. DynamoDB and Postgres are compose services,
+    # so they are reached by service name. Without these the worker falls back to `localhost`,
+    # which inside the container is the container itself: it error-loops on
+    # "Could not connect to the endpoint URL: http://localhost:9324/" forever.
+    environment:
+      - AWS_REGION=ap-southeast-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      # EventBridge — worker.py's events_client reads AWS_ENDPOINT_URL (its default is LocalStack's
+      # :4566, which this project does not run).
+      - AWS_ENDPOINT_URL=http://host.docker.internal:4010
+      - SQS_ENDPOINT_URL=http://elasticmq:9324
+      - S3_ENDPOINT_URL=http://host.docker.internal:4569
+      - AI_JOBS_QUEUE_URL=http://elasticmq:9324/queue/helpme-ai-jobs-queue
+      - DYNAMODB_ENDPOINT=http://dynamodb:8000
+      - DATABASE_URL=postgres://postgres:password@db:5432/helpme
+      - AWS_S3_BUCKET=helpme-avatars-local
+      - SCAN_JOBS_TABLE=helpme-scan-jobs
+      - ACCESS_SESSIONS_TABLE=helpme-access-sessions
+      - EMERGENCY_BUS_NAME=helpme-emergency-bus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - db
+      - dynamodb
+      - elasticmq
     restart: always
 
   write-server:
@@ -77,6 +115,10 @@ services:
       - ACCESS_SESSIONS_TABLE=helpme-access-sessions
       - SCAN_JOBS_TABLE=helpme-scan-jobs
       - AUDIT_TABLE_NAME=helpme-audit-logs
+      - AWS_S3_BUCKET=helpme-avatars-local
+      - S3_ENDPOINT=http://host.docker.internal:4569
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - db
       - dynamodb
@@ -97,6 +139,10 @@ services:
       - ACCESS_SESSIONS_TABLE=helpme-access-sessions
       - SCAN_JOBS_TABLE=helpme-scan-jobs
       - AUDIT_TABLE_NAME=helpme-audit-logs
+      - AWS_S3_BUCKET=helpme-avatars-local
+      - S3_ENDPOINT=http://host.docker.internal:4569
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - db
       - dynamodb
