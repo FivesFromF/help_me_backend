@@ -48,3 +48,4 @@ dist/
 
 # Obsidian per-user UI state (churns every session)
 .obsidian/workspace.json
+.obsidian/graph.json
