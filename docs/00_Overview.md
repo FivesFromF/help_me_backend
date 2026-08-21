@@ -27,6 +27,7 @@ The backend uses a **CQRS (Command Query Responsibility Segregation)** pattern d
 
 ## 🗺️ Quick Navigation
 
+- [[Architecture/Code_Layout|Code Layout & Build Topology]]
 - [[Architecture/CQRS_Pattern|CQRS Pattern & Data Flow]]
 - [[Architecture/Database_Schema|Database Schema & Prisma Models]]
 - [[Architecture/EventBridge_Sync|EventBridge & Async Lambda Sync]]
@@ -38,3 +39,25 @@ The backend uses a **CQRS (Command Query Responsibility Segregation)** pattern d
 - [[Services/AI_Server|AI Service (SQS Worker)]]
 - [[Services/API_Reference_and_Tests|Complete API Reference & Test Catalog]]
 - [[Runbooks/Local_Testing|Local Development & Emulation Guide]]
+
+---
+
+## 🧭 Question → Page Map
+
+Read the one page that answers the question; do not crawl `src/`.
+
+| Question | Read |
+| :-- | :-- |
+| What is this system, and what are its moving parts? | this page |
+| Where does the code live, and what builds what? | [[Architecture/Code_Layout]] |
+| How do reads and writes split? | [[Architecture/CQRS_Pattern]] |
+| What tables/models exist? | [[Architecture/Database_Schema]] |
+| How do async events and workers flow? | [[Architecture/EventBridge_Sync]] |
+| How does auth work, and what gets audited? | [[Architecture/Authentication_and_Audit]] |
+| What does the write server (`:8080`) do? | [[Services/Write_Server]] |
+| What does the read server (`:8081`) do? | [[Services/Read_Server]] |
+| How does face recognition work? | [[Services/AI_Server]] |
+| What endpoints exist, and what is tested? | [[Services/API_Reference_and_Tests]] + `test/api-test/README.md` |
+| How do I run or test this locally? | [[Runbooks/Local_Testing]] |
+| Visual architecture | `Architecture/*.canvas` (Obsidian canvas, JSON) |
+| What was worked on recently? | `Sessions/` — newest file only |
