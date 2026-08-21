@@ -5,10 +5,9 @@ infrastructure behaviour is out of scope here.
 
 Run: `npm run test:api` (in-process Express apps on ephemeral ports).
 
-**39 of these cases execute today**; 38 pass and R-03 fails against a real defect (note F).
+**46 of these cases execute today**; 45 pass and R-03 fails against a real defect (note F).
 Everything still unimplemented is blocked on the AI service — the face-recognition happy paths
-(W-04, W-06, CW-06, and the `method: "FACE"` branch of S-01) need the Python pipeline running, and
-§9's event assertions need the EventBridge emulator on `:4010`.
+(W-04, W-06, CW-06, and the `method: "FACE"` branch of S-01) need the Python pipeline running.
 
 ### Prerequisites
 
@@ -17,6 +16,7 @@ Everything still unimplemented is blocked on the AI service — the face-recogni
 | Postgres + pgvector | all | `docker compose up -d db` |
 | DynamoDB on `:8001` | W-03, S-07, V-01–V-04 | `docker compose up -d dynamodb dynamodb-init` |
 | AI service | W-04, W-06, CW-06, S-01 (FACE) | `cd src/services/ai-server && python main.py` |
+| Nothing extra | EV-01–EV-07 | the suite supplies its own event sink on `:4610` |
 
 The victim-access and job-polling cases need real DynamoDB tables. Both come from
 `docker-compose.yaml`, same as Postgres:
@@ -203,20 +203,29 @@ V-02 depends on.
 
 `victimId` is optional — an anonymous report (`victimId: null`) is still a valid 201.
 
-## 9. Events emitted (assert only if the workers are running)
+## 9. Events emitted
 
 Publishing is best-effort: a failed publish is logged and never changes the HTTP status, so these
-cannot be asserted from the response alone.
+cannot be asserted from the response alone. The suite therefore stands up its own EventBridge sink
+(`event_capture.ts`) on `:4610` and repoints `EVENTBRIDGE_ENDPOINT` at it, so **no emulator and no
+`:4010` listener is required** — and a `local-infra` stack already holding `:4010` does not clash.
+Every publish is awaited inside its handler, so the event is recorded before the response resolves.
 
-| Endpoint | Event | Bus |
-| :-- | :-- | :-- |
-| PUT `/api/citizen/profile` | `citizen.profile.updated`, `user.consent_accepted` | system |
-| PUT `/api/citizen/medical-record` | `medical_record.updated` | system |
-| POST `/api/citizen/face` | `citizen.face.registered` | system |
-| POST `/api/nfc` | `nfc.registered` | system |
-| POST `/api/emergency/report` | `emergency.reported` | system |
-| POST `/api/scan` (success) | `victim.identified` | emergency |
-| GET `/api/victim/:victimId` (granted) | `victim.record.accessed` | system |
+| ID | Endpoint | Event | Bus | Also asserts |
+| :-- | :-- | :-- | :-- | :-- |
+| EV-01 | PUT `/api/citizen/profile` | `citizen.profile.updated` | system | `actorId` is the caller |
+| EV-02 | PUT `/api/citizen/profile` (consent) | `user.consent_accepted` | system | — |
+| EV-03 | PUT `/api/citizen/medical-record` | `medical_record.updated` | system | — |
+| EV-04 | POST `/api/nfc` | `nfc.registered` | system | — |
+| EV-05 | POST `/api/emergency/report` | `emergency.reported` | system | — |
+| EV-06 | POST `/api/scan` (success) | `victim.identified` | **emergency** | victim is the target |
+| EV-07 | GET `/api/victim/:victimId` (granted) | `victim.record.accessed` | system | responder is the actor |
+
+EV-06 asserts the bus, not just the event: `grant-permission-worker` and `notification-worker` both
+subscribe to `victim.identified` on `helpme-emergency-bus`, so publishing it to the system bus would
+strand every downstream alert while the scan itself still returned `200`.
+
+Not yet asserted: `citizen.face.registered` (POST `/api/citizen/face`), which needs the AI service.
 
 ## 10. Status code summary
 

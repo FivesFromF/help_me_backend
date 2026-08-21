@@ -22,16 +22,19 @@ share the fixtures (citizen id, hash id, tag id) that `index.ts` seeds, so a gro
 invoked on its own. To narrow a run, comment out calls in `runAllGroupedApiTests()`.
 
 **The full test-case catalog is `test/api-test/README.md`** — keep that file as the source of
-truth for expected status codes. As of 2026-08-20 the runner executes **39 checks, 38 passing**:
-role rejection, expired sessions, absent-record vs. absent-citizen and unknown tags are all covered
-now. The single failure, `R-03`, reproduces a real consent defect (note F in that file).
+truth for expected status codes. As of 2026-08-21 the runner executes **46 checks, 45 passing**:
+role rejection, expired sessions, absent-record vs. absent-citizen, unknown tags and the §9 domain
+events are all covered now. The single failure, `R-03`, reproduces a real consent defect (note F in
+that file).
 
 Still not executed: the face-recognition happy paths (`W-04`, `W-06`, `CW-06`, and the
-`method: "FACE"` branch of `S-01`), which need the Python AI service running, and the §9 event
-assertions, which need the EventBridge emulator.
+`method: "FACE"` branch of `S-01`), which need the Python AI service running, along with the
+`citizen.face.registered` event they would emit.
 
 Seven checks need DynamoDB on `:8001` (`upload-url`, scan-job polling, the four victim-access
-cases) — see the prerequisites table in `test/api-test/README.md`.
+cases) — see the prerequisites table in `test/api-test/README.md`. The seven event checks need
+nothing extra: the suite runs its own EventBridge sink on `:4610` rather than the `:4010` emulator,
+so it neither requires `local-infra` nor collides with it.
 
 ---
 
@@ -316,7 +319,7 @@ Two endpoints do not behave the way this reference otherwise implies. Both are d
 
 ---
 
-## 📊 Checks executed by `npm run test:api` (39 total)
+## 📊 Checks executed by `npm run test:api` (46 total)
 
 | # | Endpoint | Method | Suite | Expected | Verified Behavior |
 |---|---|---|---|---|---|
@@ -359,6 +362,14 @@ Two endpoints do not behave the way this reference otherwise implies. Both are d
 | 37 | `/api/v1/write/citizen/profile` | `PUT` | Registration | `200` | `staff` falls through to citizen (fail-open) |
 | 38 | `/api/v1/write/citizen/profile` | `PUT` | Registration | `404` | Declaration for non-existent citizen row |
 | 39 | `/api/v1/read/citizen/profile` | `GET` | Registration | `404` | Unregistered profile |
+
+| 40 | `/api/citizen/profile` | `PUT` | Events | `200` | Publishes `citizen.profile.updated` (system bus) |
+| 41 | `/api/citizen/profile` | `PUT` | Events | `200` | Publishes `user.consent_accepted` (system bus) |
+| 42 | `/api/citizen/medical-record` | `PUT` | Events | `200` | Publishes `medical_record.updated` (system bus) |
+| 43 | `/api/nfc` | `POST` | Events | `200` | Publishes `nfc.registered` (system bus) |
+| 44 | `/api/emergency/report` | `POST` | Events | `201` | Publishes `emergency.reported` (system bus) |
+| 45 | `/api/scan` | `POST` | Events | `200` | Publishes `victim.identified` on the **emergency** bus |
+| 46 | `/api/victim/:victimId` | `GET` | Events | `200` | Publishes `victim.record.accessed` (system bus) |
 
 Row 34 is the only failing check — it is a deliberate reproduction of the consent defect, not a
 flaky test. It turns green the moment `citizen.routes.ts:29-30` stop defaulting to `true`.

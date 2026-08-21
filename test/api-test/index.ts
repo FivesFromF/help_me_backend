@@ -1,6 +1,10 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+// Must precede every import that reaches the routers: events.service.ts binds its
+// EventBridge endpoint at module load. See event_capture.ts.
+import { startEventCapture, stopEventCapture } from "./event_capture";
+
 import { prisma } from "../../src/shared/db";
 import { generateHashId } from "../../src/shared/services/hash.service";
 import { TestResult, createWriteApp, createReadApp, performRequest, recordTest } from "./test_helper";
@@ -8,6 +12,7 @@ import { runCitizenApiTests } from "./citizen.api.test";
 import { runNfcScanApiTests } from "./nfc_scan.api.test";
 import { runEmergencyApiTests } from "./emergency.api.test";
 import { runRegistrationApiTests } from "./registration.api.test";
+import { runEventApiTests } from "./events.api.test";
 
 async function runAllGroupedApiTests() {
   console.log("\n" + "=".repeat(78));
@@ -15,6 +20,7 @@ async function runAllGroupedApiTests() {
   console.log("=".repeat(78));
 
   const results: TestResult[] = [];
+  await startEventCapture();
   const testCognitoId = `cognito-test-${Date.now()}`;
   const testEmail = `api-test-${Date.now()}@helpme.local`;
   const systemSecret = process.env.SYSTEM_SECRET || "helpme-secret-key";
@@ -70,8 +76,10 @@ async function runAllGroupedApiTests() {
   await runNfcScanApiTests(results, testCognitoId, citizenId, testTagId, validHashId);
   await runEmergencyApiTests(results, citizenId, testCognitoId);
   await runRegistrationApiTests(results);
+  await runEventApiTests(results, testCognitoId, citizenId, testTagId, validHashId);
 
   // 3. Teardown
+  await stopEventCapture();
   await prisma.nfcTag.deleteMany({ where: { citizenId: citizenId } });
   await prisma.medicalRecord.deleteMany({ where: { citizenId: citizenId } });
   await prisma.emergencyReport.deleteMany({ where: { victimId: citizenId } });
