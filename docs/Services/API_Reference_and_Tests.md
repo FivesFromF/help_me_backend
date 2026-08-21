@@ -27,6 +27,9 @@ role rejection, expired sessions, absent-record vs. absent-citizen, unknown tags
 events are all covered now. The single failure, `R-03`, reproduces a real consent defect (note F in
 that file).
 
+Each run overwrites [[Testing/Test_Report|the generated test report]] with per-suite totals, the
+failure details and the full check list.
+
 Still not executed: the face-recognition happy paths (`W-04`, `W-06`, `CW-06`, and the
 `method: "FACE"` branch of `S-01`), which need the Python AI service running, along with the
 `citizen.face.registered` event they would emit.

@@ -120,7 +120,7 @@ npm run test:api
 ```
 
 Builds the read/write routers in-process on ephemeral ports and runs **46 checks** against the
-local Postgres. It needs the database (Step 1). Seven of those checks (`upload-url`, scan-job
+local Postgres. Every run overwrites `docs/Testing/Test_Report.md` with the outcome. It needs the database (Step 1). Seven of those checks (`upload-url`, scan-job
 polling and the four victim-access cases) additionally need DynamoDB on `:8001`. The full Step 2
 serverless stack provides it, but compose is lighter and enough:
 

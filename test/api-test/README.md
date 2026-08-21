@@ -9,6 +9,9 @@ Run: `npm run test:api` (in-process Express apps on ephemeral ports).
 Everything still unimplemented is blocked on the AI service — the face-recognition happy paths
 (W-04, W-06, CW-06, and the `method: "FACE"` branch of S-01) need the Python pipeline running.
 
+Every run overwrites `docs/Testing/Test_Report.md` with the result: totals per suite, the failures
+with their detail lines, and the full check list.
+
 ### Prerequisites
 
 | Needs | Cases | How |

@@ -13,6 +13,7 @@ import { runNfcScanApiTests } from "./nfc_scan.api.test";
 import { runEmergencyApiTests } from "./emergency.api.test";
 import { runRegistrationApiTests } from "./registration.api.test";
 import { runEventApiTests } from "./events.api.test";
+import { writeTestReport } from "./report";
 
 async function runAllGroupedApiTests() {
   console.log("\n" + "=".repeat(78));
@@ -92,6 +93,8 @@ async function runAllGroupedApiTests() {
   const totalCount = results.length;
   console.log(`📊  Grouped API Test Results: ${passedCount}/${totalCount} Passed (${Math.round((passedCount / totalCount) * 100)}%)`);
   console.log("=".repeat(78) + "\n");
+
+  writeTestReport(results);
 
   if (passedCount !== totalCount) {
     process.exit(1);
