@@ -22,9 +22,9 @@ share the fixtures (citizen id, hash id, tag id) that `index.ts` seeds, so a gro
 invoked on its own. To narrow a run, comment out calls in `runAllGroupedApiTests()`.
 
 **The full test-case catalog is `test/api-test/README.md`** — keep that file as the source of
-truth for expected status codes. As of 2026-08-21 the runner executes **53 checks, 52 passing**:
+truth for expected status codes. As of 2026-08-21 the runner executes **59 checks, 58 passing**:
 role rejection, expired sessions, absent-record vs. absent-citizen, unknown tags, the §9 domain
-events and the worker effects those events trigger are all covered now. The single failure, `R-03`, reproduces a real consent defect (note F in
+events, the worker effects those events trigger and the async job lifecycle are all covered now. The single failure, `R-03`, reproduces a real consent defect (note F in
 that file).
 
 Each run overwrites [[Testing/Test_Report|the generated test report]] with per-suite totals, the
@@ -34,8 +34,8 @@ Still not executed: the face-recognition happy paths (`W-04`, `W-06`, `CW-06`, a
 `method: "FACE"` branch of `S-01`), which need the Python AI service running, along with the
 `citizen.face.registered` event they would emit.
 
-Twelve checks need DynamoDB on `:8001` (`upload-url`, scan-job polling, the four victim-access
-cases and five worker-effect cases) — see the prerequisites table in
+Seventeen checks need DynamoDB on `:8001` (`upload-url`, scan-job polling, the four victim-access
+cases, five worker-effect cases and all six async-job cases) — see the prerequisites table in
 `test/api-test/README.md`. The seven event checks need
 nothing extra: the suite runs its own EventBridge sink on `:4610` rather than the `:4010` emulator,
 so it neither requires `local-infra` nor collides with it.
@@ -323,7 +323,7 @@ Two endpoints do not behave the way this reference otherwise implies. Both are d
 
 ---
 
-## 📊 Checks executed by `npm run test:api` (53 total)
+## 📊 Checks executed by `npm run test:api` (59 total)
 
 | # | Endpoint | Method | Suite | Expected | Verified Behavior |
 |---|---|---|---|---|---|
@@ -382,6 +382,13 @@ Two endpoints do not behave the way this reference otherwise implies. Both are d
 | 51 | `notification-worker` | event | Workers | effect | Emergency contact is emailed |
 | 52 | `notification-worker` | event | Workers | effect | Unknown victim sends nothing |
 | 53 | `grant-permission-worker` | event | Workers | effect | Event without a victim grants nothing |
+
+| 54 | `/api/upload-url` | `POST` | Async Jobs | `200` | Opens a `PENDING` `FACE_SCAN` job (TTL 2h) |
+| 55 | `/api/upload-url` | `POST` | Async Jobs | `200` | `FACE_ENROLL` → `ENROLLMENT` under `raw-uploads/` |
+| 56 | `/api/upload-url` | `POST` | Async Jobs | `200` | Presigned URL is signed, expiring, key-scoped |
+| 57 | `/api/scan/jobs/:jobId` | `GET` | Async Jobs | `200` | Fresh job reports `PENDING` |
+| 58 | `/api/scan/jobs/:jobId` | `GET` | Async Jobs | `200` | Completed job surfaces the match result |
+| 59 | `/api/scan/jobs/:jobId` | `GET` | Async Jobs | `200` | Failed job surfaces the rejection reason |
 
 Row 48 is the end-to-end path the whole system exists for: scan → `victim.identified` →
 `grant-permission-worker` → the responder can read the victim's record.

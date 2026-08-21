@@ -69,3 +69,16 @@ python test/ai-test/process_images_to_json.py --image "path/to/face.jpg"
 # Search and match an image against database-temp.json (Top 3 Candidates + Avatar path)
 python test/ai-test/process_images_to_json.py --search "path/to/victim.jpg"
 ```
+
+---
+
+## 🧪 4. What the API-side tests cover
+
+`npm run test:api` §11 covers the two ends this service sits between: `POST /api/upload-url`
+creating a `PENDING` job with the right operation, key prefix and TTL, and
+`GET /api/scan/jobs/:jobId` reporting `PENDING` → `COMPLETED` (with `result`) → `FAILED` (with
+`error`). The worker's DynamoDB write is simulated, so the pipeline itself is *not* under test
+there — that is what `test/ai-test/` is for.
+
+Still uncovered: the middle leg (real upload → `ObjectCreated` → SQS → `worker.py`). See the
+pending list in [[Testing/Test_Report]], including the bucket-name mismatch that blocks it.

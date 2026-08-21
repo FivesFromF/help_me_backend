@@ -5,7 +5,7 @@ infrastructure behaviour is out of scope here.
 
 Run: `npm run test:api` (in-process Express apps on ephemeral ports).
 
-**53 of these cases execute today**; 52 pass and R-03 fails against a real defect (note F).
+**59 of these cases execute today**; 58 pass and R-03 fails against a real defect (note F).
 Everything still unimplemented is blocked on the AI service — the face-recognition happy paths
 (W-04, W-06, CW-06, and the `method: "FACE"` branch of S-01) need the Python pipeline running.
 
@@ -22,6 +22,7 @@ with their detail lines, and the full check list.
 | Nothing extra | EV-01–EV-07 | the suite supplies its own event sink on `:4610` |
 | DynamoDB on `:8001` | WK-01–WK-04, WK-07 | the workers' own tables — same compose services |
 | Nothing extra | WK-05, WK-06 | the suite supplies its own SMTP sink on `:2525` |
+| DynamoDB on `:8001` | AP-01–AP-06 | job rows live in `helpme-scan-jobs` |
 
 The victim-access and job-polling cases need real DynamoDB tables. Both come from
 `docker-compose.yaml`, same as Postgres:
@@ -284,3 +285,34 @@ It verifies the real SMTP credentials, then drives `notification-worker` against
 citizen carrying that address as next-of-kin, and deletes the citizen afterwards. There is no
 default recipient — an emergency alert reaches a real person, so the address must be given
 explicitly. Verified against Gmail on 2026-08-21: credentials accepted, alert delivered.
+
+## 12. Async face-pipeline jobs (§11 in the runner output)
+
+```
+POST /api/upload-url → PENDING job + presigned PUT
+  → client uploads → S3 ObjectCreated → SQS → worker.py     ← not covered here
+    → worker updates the job row → GET /api/scan/jobs/:jobId
+```
+
+These own the two ends the API is responsible for. The Python leg is covered separately by
+`test/ai-test/`, and the worker's DynamoDB write is simulated with the same `UpdateCommand`
+`worker.py` issues — which is what makes the COMPLETED/FAILED contracts assertable without a GPU,
+an image or a queue.
+
+| ID | Case | Expected |
+| :-- | :-- | :-- |
+| AP-01 | `POST /api/upload-url` (default) | **200** + `PENDING` `FACE_SCAN` job, key `raw-scans/<jobId>.jpg`, TTL 2h |
+| AP-02 | `operation: "FACE_ENROLL"` | **200** + `ENROLLMENT` job, key `raw-uploads/<jobId>.jpg` |
+| AP-03 | the returned `uploadUrl` | signed (`X-Amz-Signature`), expiring, scoped to that key |
+| AP-04 | poll a fresh job | **200** `status: PENDING` |
+| AP-05 | poll after the worker completes it | **200** `COMPLETED` + `result` + `completed_at` |
+| AP-06 | poll after the worker fails it | **200** `FAILED` + non-empty `error` |
+
+AP-04 and AP-05 hit the *same* job before and after the simulated worker write, so the transition
+is observed rather than assumed. AP-06 matters because the pipeline rejects for real reasons — face
+tilted, anti-spoof, no match — and a responder shown an empty `200` mid-emergency is stranded.
+
+⚠️ Three different bucket names are in play: `.env` signs URLs for `AWS_S3_BUCKET`
+(`helpme-avatars-bucket`), `local-infra` creates `helpme-avatars-local`, and `upload.routes.ts`
+reads `S3_AVATARS_BUCKET_NAME` into a variable it never uses. A real upload against the emulator
+will not land until those agree — see the pending list in `docs/Testing/Test_Report.md`.

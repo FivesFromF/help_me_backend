@@ -119,10 +119,11 @@ python main.py
 npm run test:api
 ```
 
-Builds the read/write routers in-process on ephemeral ports and runs **53 checks** against the
+Builds the read/write routers in-process on ephemeral ports and runs **59 checks** against the
 local Postgres. Every run overwrites `docs/Testing/Test_Report.md` with the outcome. It needs the
-database (Step 1). Twelve of those checks (`upload-url`, scan-job polling, the four
-victim-access cases and five worker-effect cases) additionally need DynamoDB on `:8001`. The full Step 2 serverless stack provides it, but compose is lighter and
+database (Step 1). Seventeen of those checks (`upload-url`, scan-job polling, the four
+victim-access cases, five worker-effect cases and all six async-job cases) additionally need
+DynamoDB on `:8001`. The full Step 2 serverless stack provides it, but compose is lighter and
 enough:
 
 ```bash
