@@ -32,3 +32,6 @@ every downstream alert while the scan itself still returned `200`.
 
 The audit worker reads **`AUDIT_TABLE_NAME`** and drops events when it is unset — see
 [[Runbooks/Local_Testing]].
+
+The alert email itself is proven separately by `npm run test:notify -- <address>`, which sends one
+real message through the configured provider — the automated suite always uses a local sink.

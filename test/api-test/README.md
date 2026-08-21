@@ -268,6 +268,19 @@ worker call and it returns 403, which is what makes the other six worth trusting
 (`[audit] AUDIT_TABLE_NAME not set`), so the suite sets a default of `helpme-audit-logs` for its
 own run. Anything running a worker outside the suite needs it in the environment.
 
-⚠️ **Never let these run against the configured SMTP.** `.env` points `SMTP_HOST` at a real
-provider; `smtp_capture.ts` overrides host and port before the handler is imported so an alert
-cannot leave the machine. Keep that ordering if you add cases here.
+⚠️ **These never touch the configured SMTP.** `.env` points `SMTP_HOST` at a real provider;
+`smtp_capture.ts` overrides host and port before the handler is imported, so nothing an automated
+run does can leave the machine. Keep that ordering if you add cases here.
+
+### Sending a real alert on purpose
+
+`npm run test:api` must stay safe to run anywhere, so the live path is a separate, opt-in script:
+
+```bash
+npm run test:notify -- you@example.com
+```
+
+It verifies the real SMTP credentials, then drives `notification-worker` against a throwaway
+citizen carrying that address as next-of-kin, and deletes the citizen afterwards. There is no
+default recipient — an emergency alert reaches a real person, so the address must be given
+explicitly. Verified against Gmail on 2026-08-21: credentials accepted, alert delivered.

@@ -147,6 +147,19 @@ One check fails by design: `R-03` reproduces an open consent defect — see
 
 The full catalogue of expected status codes per endpoint is `test/api-test/README.md`.
 
+### Sending a real emergency alert
+
+The automated run never touches the configured SMTP — the worker checks point it at an in-process
+sink first. To exercise the real transport, use the opt-in script:
+
+```bash
+npm run test:notify -- you@example.com
+```
+
+It verifies the credentials in `.env`, sends one genuine "HelpMe Emergency Alert" through
+`notification-worker`, and cleans up the throwaway citizen it created. It refuses to run without
+an explicit recipient.
+
 ---
 
 ## 🧬 Step 5: Run AI Biometric Extraction & Matching Test

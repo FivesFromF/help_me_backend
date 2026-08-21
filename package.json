@@ -18,6 +18,7 @@
     "test": "python test/ai-test/process_images_to_json.py",
     "test:ai": "python test/ai-test/process_images_to_json.py",
     "test:api": "tsx test/api-test/index.ts",
+    "test:notify": "tsx test/api-test/live_notify.ts",
     "ddb:admin": "cross-env DYNAMO_ENDPOINT=http://localhost:8001 dynamodb-admin -p 8002"
   },
   "prisma": {
