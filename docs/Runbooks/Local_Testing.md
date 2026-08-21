@@ -119,10 +119,11 @@ python main.py
 npm run test:api
 ```
 
-Builds the read/write routers in-process on ephemeral ports and runs **46 checks** against the
-local Postgres. Every run overwrites `docs/Testing/Test_Report.md` with the outcome. It needs the database (Step 1). Seven of those checks (`upload-url`, scan-job
-polling and the four victim-access cases) additionally need DynamoDB on `:8001`. The full Step 2
-serverless stack provides it, but compose is lighter and enough:
+Builds the read/write routers in-process on ephemeral ports and runs **53 checks** against the
+local Postgres. Every run overwrites `docs/Testing/Test_Report.md` with the outcome. It needs the
+database (Step 1). Twelve of those checks (`upload-url`, scan-job polling, the four
+victim-access cases and five worker-effect cases) additionally need DynamoDB on `:8001`. The full Step 2 serverless stack provides it, but compose is lighter and
+enough:
 
 ```bash
 docker compose up -d dynamodb dynamodb-init
@@ -134,7 +135,10 @@ victim-access case V-01 would still *pass*, because `hasActiveSession()` denies 
 error.
 
 The EventBridge emulator (`:4010`) is only needed if you want the event path to reach the real
-workers. The seven §9 checks do not use it: `test/api-test/event_capture.ts` stands up its own sink
+workers *in the background*. The §10 checks invoke the worker handlers directly instead, so they
+need no emulator either — and note that the audit worker reads `AUDIT_TABLE_NAME`, which `.env`
+does not set: the suite defaults it to `helpme-audit-logs`, but a worker run by hand will drop
+every event until you export it. The seven §9 checks do not use it: `test/api-test/event_capture.ts` stands up its own sink
 on `:4610` and repoints `EVENTBRIDGE_ENDPOINT` at it for the duration of the run, which is why the
 `[events] failed to publish` warnings no longer appear during `npm run test:api`.
 

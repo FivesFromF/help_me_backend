@@ -5,7 +5,7 @@ infrastructure behaviour is out of scope here.
 
 Run: `npm run test:api` (in-process Express apps on ephemeral ports).
 
-**46 of these cases execute today**; 45 pass and R-03 fails against a real defect (note F).
+**53 of these cases execute today**; 52 pass and R-03 fails against a real defect (note F).
 Everything still unimplemented is blocked on the AI service — the face-recognition happy paths
 (W-04, W-06, CW-06, and the `method: "FACE"` branch of S-01) need the Python pipeline running.
 
@@ -20,6 +20,8 @@ with their detail lines, and the full check list.
 | DynamoDB on `:8001` | W-03, S-07, V-01–V-04 | `docker compose up -d dynamodb dynamodb-init` |
 | AI service | W-04, W-06, CW-06, S-01 (FACE) | `cd src/services/ai-server && python main.py` |
 | Nothing extra | EV-01–EV-07 | the suite supplies its own event sink on `:4610` |
+| DynamoDB on `:8001` | WK-01–WK-04, WK-07 | the workers' own tables — same compose services |
+| Nothing extra | WK-05, WK-06 | the suite supplies its own SMTP sink on `:2525` |
 
 The victim-access and job-polling cases need real DynamoDB tables. Both come from
 `docker-compose.yaml`, same as Postgres:
@@ -241,3 +243,31 @@ Not yet asserted: `citizen.face.registered` (POST `/api/citizen/face`), which ne
 | 403 | Wrong role, bad hash signature, or no active access session |
 | 404 | Citizen / tag / job / victim not found |
 | 500 | Unhandled error (AI service down, DB unreachable) |
+
+## 11. Worker effects (§10 in the runner output)
+
+§9 proves the API *published* an event. These take that captured event, hand it to the real
+handler from `src/functions/`, and assert the side effect. The handlers are invoked directly
+rather than through the `:4010` emulator: that keeps the checks deterministic instead of polling
+for a Lambda that may never fire, and it is the same handler code Terraform deploys.
+
+| ID | Worker | Given | Then |
+| :-- | :-- | :-- | :-- |
+| WK-01 | `grant-permission-worker` | `victim.identified` from a real scan | session row `responder#victim`, TTL ≈ 1h |
+| WK-02 | *(chain)* | the session WK-01 wrote | `GET /api/victim/:id` flips **403 → 200** |
+| WK-03 | `audit-worker` | `victim.record.accessed` | row in `helpme-audit-logs` under the actor |
+| WK-04 | `audit-worker` | event with no `actorId` | row filed under actor `system` |
+| WK-05 | `notification-worker` | victim with an emergency contact | alert email to that contact |
+| WK-06 | `notification-worker` | victim id that does not exist | nothing sent |
+| WK-07 | `grant-permission-worker` | event with no victim | no session written |
+
+WK-02 is the end-to-end one: scan → event → worker → the responder can read the record. Remove the
+worker call and it returns 403, which is what makes the other six worth trusting.
+
+⚠️ **`.env` has no `AUDIT_TABLE_NAME`.** The audit worker drops every event without it
+(`[audit] AUDIT_TABLE_NAME not set`), so the suite sets a default of `helpme-audit-logs` for its
+own run. Anything running a worker outside the suite needs it in the environment.
+
+⚠️ **Never let these run against the configured SMTP.** `.env` points `SMTP_HOST` at a real
+provider; `smtp_capture.ts` overrides host and port before the handler is imported so an alert
+cannot leave the machine. Keep that ordering if you add cases here.

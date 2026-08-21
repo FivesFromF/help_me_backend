@@ -1,0 +1,263 @@
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { prisma } from "../../src/shared/db";
+import { createReadApp, performRequest, recordTest, TestResult } from "./test_helper";
+import { clearEvents, findEvent, EMERGENCY_BUS, SYSTEM_BUS } from "./event_capture";
+import { clearMail, mailTo, startSmtpCapture, stopSmtpCapture, capturedMail } from "./smtp_capture";
+
+const SUITE = "Workers";
+
+/**
+ * §10 — what the workers actually DO with the events §9 proves we publish.
+ *
+ * The event checks stop at "the API published it". These take the captured event, hand it to
+ * the real handler, and assert the side effect: a DynamoDB session row, an audit record, an
+ * alert email. WK-02 closes the loop end to end — scan → event → worker → the responder can
+ * now read the victim's record, which is the whole golden-hour promise.
+ *
+ * The handlers are invoked directly rather than through the :4010 emulator. That keeps the
+ * checks deterministic (no polling for a Lambda that may never fire) and exercises the same
+ * handler code the Terraform stack deploys.
+ */
+
+const ddbEndpoint =
+  process.env.DYNAMODB_ENDPOINT || process.env.AWS_ENDPOINT_URL || "http://127.0.0.1:8001";
+const SESSIONS_TABLE = process.env.ACCESS_SESSIONS_TABLE || "helpme-access-sessions";
+const AUDIT_TABLE = process.env.AUDIT_TABLE_NAME || "helpme-audit-logs";
+
+const ddb = DynamoDBDocumentClient.from(
+  new DynamoDBClient({
+    endpoint: ddbEndpoint,
+    region: process.env.AWS_REGION || "ap-southeast-1",
+    credentials: { accessKeyId: "test", secretAccessKey: "test" },
+  })
+);
+
+/** Worker checks assert an effect, not a status: 1 = effect produced, 0 = not. */
+function recordEffect(
+  results: TestResult[],
+  name: string,
+  worker: string,
+  produced: boolean,
+  details?: string
+) {
+  recordTest(results, SUITE, name, worker, "EVENT", 1, produced ? 1 : 0, produced, details);
+}
+
+/** Shape an EventBridge envelope the way the bus would deliver it to a Lambda. */
+function envelope(detailType: string, detail: Record<string, any>, bus: string) {
+  return {
+    id: `test-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    source: "helpme.backend",
+    "detail-type": detailType,
+    time: new Date().toISOString(),
+    resources: [bus],
+    detail,
+  };
+}
+
+export async function runWorkerApiTests(
+  results: TestResult[],
+  citizenId: string,
+  testTagId: string,
+  validHashId: string
+) {
+  console.log("\n⚙️  6. Testing Event Workers (§10 — effects of published events)");
+  console.log("-".repeat(78));
+
+  // The handlers bind their table names, endpoint and SMTP transport at module load, so every
+  // one of these must be set before the dynamic imports below. SMTP especially: .env points at
+  // a real provider, and an alert email must never leave the machine during a test run.
+  const smtpPort = await startSmtpCapture();
+  process.env.DYNAMODB_ENDPOINT = ddbEndpoint;
+  process.env.ACCESS_SESSIONS_TABLE = SESSIONS_TABLE;
+  process.env.AUDIT_TABLE_NAME = AUDIT_TABLE; // absent from .env — the worker drops events without it
+  process.env.SMTP_HOST = "127.0.0.1";
+  process.env.SMTP_PORT = String(smtpPort);
+  process.env.SMTP_USER = "";
+  process.env.SMTP_PASS = "";
+  process.env.SMTP_FROM = "alerts@helpme.local";
+
+  const { main: grantMain } = await import("../../src/functions/grant-permission-worker/handler");
+  const { main: auditMain } = await import("../../src/functions/audit-worker/handler");
+  const { main: notifyMain } = await import("../../src/functions/notification-worker/handler");
+
+  const readApp = createReadApp();
+  const responderId = "responder-worker-01";
+  const responderHeaders = { "x-cognito-id": responderId, "x-role": "admin" };
+  const sessionId = `${responderId}#${citizenId}`;
+
+  // Start from a clean slate: a stale session from an earlier run would make WK-02 pass
+  // without the worker doing anything.
+  await ddb
+    .send(new DeleteCommand({ TableName: SESSIONS_TABLE, Key: { session_id: sessionId } }))
+    .catch(() => undefined);
+
+  // ── WK-01 victim.identified → grant-permission-worker writes a session ──────
+  let grantedEvent: any = null;
+  {
+    clearEvents();
+    await performRequest(readApp, "POST", "/api/scan", responderHeaders, {
+      method: "NFC",
+      tagId: testTagId,
+      hashId: validHashId,
+    });
+    const published = findEvent("victim.identified", EMERGENCY_BUS);
+    grantedEvent = published ? envelope("victim.identified", published.detail, EMERGENCY_BUS) : null;
+
+    let item: any = null;
+    if (grantedEvent) {
+      await grantMain(grantedEvent);
+      const got = await ddb.send(
+        new GetCommand({ TableName: SESSIONS_TABLE, Key: { session_id: sessionId } })
+      );
+      item = got.Item ?? null;
+    }
+
+    const ttl = item ? item.expires_at - Math.floor(Date.now() / 1000) : 0;
+    recordEffect(
+      results,
+      "victim.identified grants a 1-hour access session",
+      "grant-permission-worker",
+      !!item && item.victim_id === citizenId && ttl > 3500 && ttl <= 3600,
+      !grantedEvent
+        ? "the scan published no victim.identified event to assert against"
+        : !item
+          ? `no session row at ${sessionId} in ${SESSIONS_TABLE}`
+          : `victim_id=${item.victim_id} ttl=${ttl}s`
+    );
+  }
+
+  // ── WK-02 the chain: the granted session actually unlocks the record ────────
+  // Denied before the worker ran, allowed after — the end-to-end golden-hour path.
+  {
+    const after = await performRequest(readApp, "GET", `/api/victim/${citizenId}`, responderHeaders);
+    recordTest(
+      results,
+      SUITE,
+      "Session written by the worker unlocks the victim record",
+      "/api/victim/:victimId",
+      "GET",
+      200,
+      after.status,
+      after.status === 200 && after.body?.citizen?.id === citizenId,
+      after.status !== 200
+        ? "responder still denied after grant-permission-worker ran"
+        : undefined
+    );
+  }
+
+  // ── WK-03 audit-worker records a system event ───────────────────────────────
+  {
+    const actorId = `audit-probe-${Date.now()}`;
+    await auditMain(
+      envelope("victim.record.accessed", { actorId, targetId: citizenId, method: "NFC" }, SYSTEM_BUS)
+    );
+    const q = await ddb.send(
+      new QueryCommand({
+        TableName: AUDIT_TABLE,
+        KeyConditionExpression: "actor_id = :a",
+        ExpressionAttributeValues: { ":a": actorId },
+      })
+    );
+    const row = q.Items?.[0];
+    recordEffect(
+      results,
+      "System event is written to the audit trail",
+      "audit-worker",
+      !!row && row.detail_type === "victim.record.accessed" && row.target_id === citizenId,
+      row ? `detail_type=${row.detail_type}` : `no audit row for actor ${actorId} in ${AUDIT_TABLE}`
+    );
+  }
+
+  // ── WK-04 audit-worker falls back to "system" when there is no actor ────────
+  {
+    const marker = `no-actor-${Date.now()}`;
+    await auditMain(envelope("citizen.profile.updated", { metadata: { marker } }, SYSTEM_BUS));
+    const q = await ddb.send(
+      new QueryCommand({
+        TableName: AUDIT_TABLE,
+        KeyConditionExpression: "actor_id = :a",
+        ExpressionAttributeValues: { ":a": "system" },
+      })
+    );
+    const row = q.Items?.find((i) => i.metadata?.marker === marker);
+    recordEffect(
+      results,
+      "Actorless event is audited under actor 'system'",
+      "audit-worker",
+      !!row,
+      row ? undefined : "no row filed under actor_id 'system'"
+    );
+  }
+
+  // ── WK-05 notification-worker emails the emergency contacts ─────────────────
+  {
+    clearMail();
+    const contactEmail = `next-of-kin-${Date.now()}@helpme.local`;
+    await prisma.citizen.update({
+      where: { id: citizenId },
+      data: { emergencyContacts: [{ name: "Nguyen Van A", email: contactEmail, phone: "+84900111222" }] },
+    });
+
+    await notifyMain(
+      envelope("victim.identified", { targetId: citizenId, method: "NFC" }, EMERGENCY_BUS)
+    );
+
+    const mail = mailTo(contactEmail);
+    recordEffect(
+      results,
+      "victim.identified alerts the emergency contact by email",
+      "notification-worker",
+      !!mail && /HelpMe Emergency Alert/i.test(mail.data),
+      mail
+        ? undefined
+        : `nothing captured for ${contactEmail} (captured ${capturedMail().length} message(s))`
+    );
+  }
+
+  // ── WK-06 an unknown victim must not produce an email ───────────────────────
+  {
+    clearMail();
+    await notifyMain(
+      envelope("victim.identified", { targetId: "00000000-0000-4000-8000-000000000000" }, EMERGENCY_BUS)
+    );
+    recordEffect(
+      results,
+      "Unknown victim sends no alert",
+      "notification-worker",
+      capturedMail().length === 0,
+      capturedMail().length === 0 ? undefined : "an email went out for a citizen that does not exist"
+    );
+  }
+
+  // ── WK-07 a malformed grant event must not write a session ──────────────────
+  {
+    const orphan = "responder-orphan-01";
+    await grantMain(envelope("victim.identified", { responderId: orphan }, EMERGENCY_BUS));
+    const got = await ddb.send(
+      new QueryCommand({
+        TableName: SESSIONS_TABLE,
+        KeyConditionExpression: "session_id = :s",
+        ExpressionAttributeValues: { ":s": `${orphan}#undefined` },
+      })
+    );
+    recordEffect(
+      results,
+      "Event without a victim writes no session",
+      "grant-permission-worker",
+      (got.Items?.length ?? 0) === 0,
+      (got.Items?.length ?? 0) === 0 ? undefined : "a session was granted with no victim"
+    );
+  }
+
+  // ── Teardown ────────────────────────────────────────────────────────────────
+  await ddb
+    .send(new DeleteCommand({ TableName: SESSIONS_TABLE, Key: { session_id: sessionId } }))
+    .catch(() => undefined);
+  await prisma.citizen.update({
+    where: { id: citizenId },
+    data: { emergencyContacts: [] },
+  });
+  await stopSmtpCapture();
+}

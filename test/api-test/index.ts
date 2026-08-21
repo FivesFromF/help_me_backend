@@ -13,6 +13,7 @@ import { runNfcScanApiTests } from "./nfc_scan.api.test";
 import { runEmergencyApiTests } from "./emergency.api.test";
 import { runRegistrationApiTests } from "./registration.api.test";
 import { runEventApiTests } from "./events.api.test";
+import { runWorkerApiTests } from "./workers.api.test";
 import { writeTestReport } from "./report";
 
 async function runAllGroupedApiTests() {
@@ -78,6 +79,7 @@ async function runAllGroupedApiTests() {
   await runEmergencyApiTests(results, citizenId, testCognitoId);
   await runRegistrationApiTests(results);
   await runEventApiTests(results, testCognitoId, citizenId, testTagId, validHashId);
+  await runWorkerApiTests(results, citizenId, testTagId, validHashId);
 
   // 3. Teardown
   await stopEventCapture();
