@@ -5,6 +5,9 @@
 *.tfvars
 *.tfvars.json
 .terraform.lock.hcl
+# Saved plan files: binary, machine-specific, and they can embed variable values.
+tfplan
+*.tfplan
 
 # Go
 /src/main
