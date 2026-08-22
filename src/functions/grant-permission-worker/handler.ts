@@ -1,7 +1,7 @@
 /**
  * RETIRED 2026-08-22 - kept as a no-op so the EventBridge rule has a live target.
  *
- * This worker used to write the 1-hour access grant into the DynamoDB table
+ * This worker used to write the access grant into the DynamoDB table
  * `helpme-access-sessions`. Sessions now live in Postgres (`access_sessions`), and this Lambda has
  * no VPC configuration, so it cannot reach RDS at all - the same wall `post-confirmation` hit.
  *

@@ -91,7 +91,7 @@ export async function runWorkerApiTests(
     .deleteMany({ where: { responderId, victimId: citizenId } })
     .catch(() => undefined);
 
-  // ── WK-01 the scan itself grants the 1-hour access session ──────────────────
+  // ── WK-01 the scan itself grants the 12-hour access session ──────────────────
   // Was: grant-permission-worker wrote it to DynamoDB. Sessions moved to Postgres on 2026-08-22
   // and that Lambda has no VPC access to RDS, so granting now happens synchronously inside the scan
   // route - which also removes the old race where the response claimed accessGranted before the
@@ -118,9 +118,9 @@ export async function runWorkerApiTests(
     const ttl = row ? Math.floor((row.expiresAt.getTime() - Date.now()) / 1000) : 0;
     recordEffect(
       results,
-      "victim.identified grants a 1-hour access session",
+      "victim.identified grants a 12-hour access session",
       "scan route (access_sessions)",
-      !!row && row.victimId === citizenId && ttl > 3500 && ttl <= 3600,
+      !!row && row.victimId === citizenId && ttl > 12 * 3600 - 100 && ttl <= 12 * 3600,
       !row
         ? `no access_sessions row for ${responderId} -> ${citizenId}`
         : `victim_id=${row.victimId} ttl=${ttl}s`

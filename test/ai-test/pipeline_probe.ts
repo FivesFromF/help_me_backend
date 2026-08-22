@@ -101,7 +101,7 @@ async function main() {
     const session = await prisma.accessSession.findFirst({
       where: { responderId, victimId: citizen.id },
     });
-    check(!!session, "1-hour access session granted by the worker",
+    check(!!session, "access session granted by the worker",
       session ? `expires_at=${session.expiresAt.toISOString()}` : "no access_sessions row");
 
     console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`);

@@ -33,6 +33,7 @@ model Citizen {
   nfcTags             NfcTag[]
   qrCodes             QrCode[]
   emergencyReports    EmergencyReport[]
+  accessComplaints    AccessComplaint[]
 
   @@map("citizens")
 }
@@ -79,8 +80,13 @@ model QrCode {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name       String?
   status     String    @default("INACTIVE")
-  citizenId  String    @map("citizen_id") @db.Uuid
-  citizen    Citizen   @relation(fields: [citizenId], references: [id], onDelete: Cascade)
+
+  /// Nullable, giống nfc_tags: người dùng "xoá" mã QR thì gỡ liên kết chủ sở hữu chứ không xoá hàng.
+  /// Giữ lại hàng là giữ lại lịch sử - `last_used_at` cho biết mã từng bị quét lúc nào, và một mã đã
+  /// in ra giấy vẫn tồn tại ngoài đời dù chủ nhân không dùng nữa. Mã không có chủ không định danh
+  /// được ai - xem nhánh QR trong read-server/scan.routes.ts.
+  citizenId  String?   @map("citizen_id") @db.Uuid
+  citizen    Citizen?  @relation(fields: [citizenId], references: [id], onDelete: Cascade)
   createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamptz
   lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz
 
@@ -95,16 +101,61 @@ model AccessSession {
   grantedAt   DateTime @default(now()) @map("granted_at") @db.Timestamptz
   expiresAt   DateTime @map("expires_at") @db.Timestamptz
 
-  /// ACTIVE | EXPIRED. Hàng hết hạn được ĐỔI TRẠNG THÁI chứ không xoá: chính những hàng này là
-  /// lịch sử truy cập mà `emergency_reports.access_session_id` trỏ tới, và là bằng chứng ai đã mở
-  /// hồ sơ y tế của ai - xoá đi là mất dấu vết kiểm toán.
+  /// ACTIVE | EXPIRED | COMPLAINED. Hàng hết hạn được ĐỔI TRẠNG THÁI chứ không xoá: chính những
+  /// hàng này là lịch sử truy cập mà `emergency_reports.access_session_id` trỏ tới, và là bằng
+  /// chứng ai đã mở hồ sơ y tế của ai - xoá đi là mất dấu vết kiểm toán.
+  ///
+  /// COMPLAINED: nạn nhân đã khiếu nại lần truy cập này. Đây là trạng thái CHUNG CUỘC - quét lại
+  /// thẻ cũng không cấp lại quyền, nếu không người bị khiếu nại chỉ cần quét thêm lần nữa là xoá
+  /// sạch khiếu nại.
   status      String   @default("ACTIVE")
+
+  /// Lý do nạn nhân đưa ra khi khiếu nại, và thời điểm khiếu nại.
+  complaintReason String?   @map("complaint_reason")
+  complainedAt    DateTime? @map("complained_at") @db.Timestamptz
   reports     EmergencyReport[]
+
+  /// Khiếu nại của nạn nhân về chính phiên truy cập này, nếu có.
+  complaint   AccessComplaint?
 
   @@unique([responderId, victimId])
   @@index([expiresAt])
   @@index([status])
   @@map("access_sessions")
+}
+
+/// Khiếu nại của công dân về việc ai đó đã mở hồ sơ y tế của mình mà không có lý do chính đáng.
+///
+/// Gắn thẳng vào `access_sessions`: mỗi phiên chỉ khiếu nại được một lần, và chính hàng phiên đó là
+/// bằng chứng - ai mở, mở lúc nào, bằng phương thức gì. Đây là lý do phiên hết hạn được giữ lại
+/// thay vì xoá: xoá phiên là xoá luôn khả năng khiếu nại.
+///
+/// Chỉ nạn nhân (`victim_id` của phiên) mới được nộp.
+model AccessComplaint {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  /// Một phiên chỉ khiếu nại một lần; nộp lại sẽ trả về 409.
+  accessSessionId String        @unique @map("access_session_id") @db.Uuid
+  accessSession   AccessSession @relation(fields: [accessSessionId], references: [id], onDelete: Cascade)
+
+  complainantId   String        @map("complainant_id") @db.Uuid
+  complainant     Citizen       @relation(fields: [complainantId], references: [id], onDelete: Cascade)
+
+  /// NO_EMERGENCY | UNKNOWN_RESPONDER | DATA_MISUSE | OTHER
+  reason          String
+  description     String?
+
+  /// PENDING | REVIEWING | UPHELD | DISMISSED
+  status          String        @default("PENDING")
+  reviewedBy      String?       @map("reviewed_by")
+  reviewedAt      DateTime?     @map("reviewed_at") @db.Timestamptz
+  resolutionNote  String?       @map("resolution_note")
+
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status])
+  @@map("access_complaints")
 }
 
 model EmergencyReport {

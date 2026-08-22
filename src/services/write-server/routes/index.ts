@@ -3,6 +3,7 @@ import { healthRoutes } from "./health.routes";
 import { citizenRoutes } from "./citizen.routes";
 import { nfcRoutes } from "./nfc.routes";
 import { qrRoutes } from "./qr.routes";
+import { accessRoutes } from "./access.routes";
 import { emergencyRoutes } from "./emergency.routes";
 import { uploadRoutes } from "./upload.routes";
 
@@ -15,6 +16,7 @@ writeRouter.use(healthRoutes);
 writeRouter.use(citizenRoutes);
 writeRouter.use(nfcRoutes);
 writeRouter.use(qrRoutes);
+writeRouter.use(accessRoutes);
 writeRouter.use(emergencyRoutes);
 writeRouter.use(uploadRoutes);
 

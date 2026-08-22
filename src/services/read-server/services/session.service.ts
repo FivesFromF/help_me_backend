@@ -1,7 +1,7 @@
 import { prisma } from "../../../shared/db";
 
 /**
- * The 1-hour emergency access grant, stored in Postgres (`access_sessions`).
+ * The 12-hour emergency access grant, stored in Postgres (`access_sessions`).
  *
  * Moved off DynamoDB on 2026-08-22. Every reader and writer already held a Postgres connection, and
  * the one component that did not - `grant-permission-worker`, a Lambda outside the VPC - could not
@@ -16,10 +16,16 @@ import { prisma } from "../../../shared/db";
  * tidy it.
  */
 
-export const SESSION_TTL_SECONDS = 3600;
+/** 12 hours. Emergency care runs past a single hour - handover between responders, transfer to a
+ *  hospital, a long night in A&E - and a grant that lapses mid-treatment forces a re-scan on a
+ *  patient who may no longer be able to present their card. Every read still checks the clock, and
+ *  the victim can end any grant early by complaining. */
+export const SESSION_TTL_SECONDS = 12 * 60 * 60;
 
 export const SESSION_ACTIVE = "ACTIVE";
 export const SESSION_EXPIRED = "EXPIRED";
+/** Terminal: the victim complained about this access. Never reactivated, not even by a fresh scan. */
+export const SESSION_COMPLAINED = "COMPLAINED";
 
 /**
  * Flips every elapsed grant to EXPIRED. Cheap and idempotent - one indexed UPDATE touching only
@@ -54,6 +60,9 @@ export async function hasActiveSession(responderId: string, victimId: string): P
       where: {
         responderId,
         victimId,
+        // Trạng thái VÀ đồng hồ. Chỉ xét đồng hồ thì phiên bị khiếu nại (COMPLAINED) vẫn mở được
+        // hồ sơ cho tới khi hết giờ - đúng thứ mà khiếu nại phải chặn ngay lập tức.
+        status: SESSION_ACTIVE,
         expiresAt: { gt: new Date() },
       },
       select: { id: true },
@@ -83,6 +92,20 @@ export async function grantAccessSession(
   const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000);
 
   try {
+    const existing = await prisma.accessSession.findUnique({
+      where: { responderId_victimId: { responderId, victimId } },
+      select: { status: true },
+    });
+
+    // Một khiếu nại là chung cuộc. Nếu quét lại mà vẫn cấp quyền thì người bị khiếu nại chỉ cần
+    // quét thêm lần nữa là vô hiệu hoá khiếu nại - khiếu nại sẽ thành vô nghĩa.
+    if (existing?.status === SESSION_COMPLAINED) {
+      console.warn(
+        `[session] refusing to grant ${responderId} -> ${victimId}: access was complained about`
+      );
+      return null;
+    }
+
     await prisma.accessSession.upsert({
       where: { responderId_victimId: { responderId, victimId } },
       create: { responderId, victimId, method, expiresAt, status: SESSION_ACTIVE },
@@ -111,6 +134,15 @@ export async function listActiveSessions(limit = 200) {
     orderBy: { expiresAt: "asc" },
     take: limit,
   });
+}
+
+/** True when this responder is barred from this victim by a complaint. */
+export async function isComplained(responderId: string, victimId: string): Promise<boolean> {
+  const row = await prisma.accessSession.findUnique({
+    where: { responderId_victimId: { responderId, victimId } },
+    select: { status: true },
+  });
+  return row?.status === SESSION_COMPLAINED;
 }
 
 /** Access history for one victim - who opened their record and when, expired grants included. */

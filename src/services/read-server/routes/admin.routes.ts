@@ -147,7 +147,7 @@ adminRoutes.get(
   }
 );
 
-// ─── GET /api/v1/admin/sessions — live 1-hour emergency access sessions ───────
+// ─── GET /api/v1/admin/sessions — live 12-hour emergency access sessions ───────
 adminRoutes.get(
   alias("/sessions"),
   requireRole(["admin"]),
@@ -248,6 +248,64 @@ adminRoutes.get(
     } catch (err: any) {
       console.error("[admin] incident detail failed:", err);
       res.status(500).json({ error: err.message || "Failed to load incident" });
+    }
+  }
+);
+
+// ─── GET /api/v1/admin/complaints — accesses citizens have objected to ────────
+// A complaint that nobody reads is not a safeguard. These are the cases where someone opened a
+// medical record and the person it belongs to said it was not justified, so they are the queue an
+// operator is supposed to work through.
+adminRoutes.get(
+  alias("/complaints"),
+  requireRole(["admin"]),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { take, skip } = paging(req);
+
+      const where = { status: "COMPLAINED" };
+      const [total, rows] = await Promise.all([
+        prisma.accessSession.count({ where }),
+        prisma.accessSession.findMany({
+          where,
+          orderBy: { complainedAt: "desc" },
+          take,
+          skip,
+        }),
+      ]);
+
+      // responderId is a Cognito sub and victimId a citizen uuid - different keys, so both sides
+      // are resolved separately rather than joined.
+      const [victims, responders] = await Promise.all([
+        prisma.citizen.findMany({
+          where: { id: { in: [...new Set(rows.map((r) => r.victimId))] } },
+          select: { id: true, fullName: true, phone: true },
+        }),
+        prisma.citizen.findMany({
+          where: { cognitoId: { in: [...new Set(rows.map((r) => r.responderId))] } },
+          select: { cognitoId: true, fullName: true, phone: true },
+        }),
+      ]);
+      const vMap = new Map(victims.map((v) => [v.id, v]));
+      const rMap = new Map(responders.map((r) => [r.cognitoId, r]));
+
+      res.status(200).json({
+        total,
+        limit: take,
+        offset: skip,
+        complaints: rows.map((r) => ({
+          sessionId: r.id,
+          complainedAt: r.complainedAt,
+          reason: r.complaintReason,
+          method: r.method,
+          grantedAt: r.grantedAt,
+          victim: vMap.get(r.victimId) ?? { id: r.victimId },
+          responder: rMap.get(r.responderId) ?? { cognitoId: r.responderId },
+        })),
+      });
+    } catch (err: any) {
+      console.error("[admin] complaints failed:", err);
+      res.status(500).json({ error: err.message || "Failed to load complaints" });
     }
   }
 );

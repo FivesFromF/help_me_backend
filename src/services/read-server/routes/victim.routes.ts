@@ -6,7 +6,7 @@ import { requireRole } from "../../../shared/middleware/auth";
 
 export const victimRoutes = Router();
 
-// GET /api/victim/:victimId — Re-access victim medical record within 1-hour session window
+// GET /api/victim/:victimId — Re-access victim medical record within the 12-hour session window
 victimRoutes.get(
   ["/victim/:victimId", "/api/victim/:victimId", "/api/v1/read/victim/:victimId", "/api/v1/victim/:victimId"],
   requireRole(["citizen", "admin"]),

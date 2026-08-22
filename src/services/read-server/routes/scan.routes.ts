@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { prisma } from "../../../shared/db";
-import { grantAccessSession } from "../services/session.service";
+import { grantAccessSession, isComplained, SESSION_TTL_SECONDS } from "../services/session.service";
 import { verifyHashId } from "../../../shared/services/hash.service";
 import { extractFaceFeature } from "../../../shared/services/ai.service";
 import { publishEmergencyEvent } from "../../../shared/services/events.service";
@@ -55,6 +55,13 @@ scanRoutes.post(
         // Cấp quyền ngay tại đây thay vì để grant-permission-worker làm bất đồng bộ: worker đó là
         // Lambda nằm ngoài VPC nên không với tới RDS, và phản hồi bên dưới vẫn luôn khẳng định
         // `accessGranted: true` - trước đây là lời hứa suông cho tới khi worker kịp ghi.
+        // Khiếu nại chặn cả việc quét lại. Nếu không, người bị khiếu nại chỉ cần quét thẻ thêm
+        // lần nữa là lại thấy hồ sơ - vì chính phản hồi của /api/scan đã chứa bệnh án.
+        if (await isComplained(responderId, tag.citizenId)) {
+          res.status(403).json({ error: "Access to this citizen has been revoked following a complaint" });
+          return;
+        }
+
         await grantAccessSession(responderId, tag.citizenId, "NFC");
 
         await publishEmergencyEvent("victim.identified", {
@@ -76,7 +83,7 @@ scanRoutes.post(
           citizen,
           record: record || null,
           accessGranted: true,
-          expiresIn: 3600,
+          expiresIn: SESSION_TTL_SECONDS,
         });
         return;
       }
@@ -92,7 +99,9 @@ scanRoutes.post(
 
         // A QR image is trivially copied, so status is the only lockout a citizen has once a card
         // is lost. Refuse anything that is not ACTIVE, exactly as the NFC branch does.
-        if (!qr || qr.status !== "ACTIVE") {
+        // `!qr.citizenId` là mã đã bị chủ cũ gỡ liên kết: hàng còn đó để giữ lịch sử, nhưng nó
+        // không định danh ai. Gộp chung một phản hồi với mã không tồn tại.
+        if (!qr || !qr.citizenId || qr.status !== "ACTIVE") {
           res.status(404).json({ error: "QR code not found or inactive" });
           return;
         }
@@ -114,6 +123,13 @@ scanRoutes.post(
           .update({ where: { id: qrId }, data: { lastUsedAt: new Date() } })
           .catch(() => undefined);
 
+        // Khiếu nại chặn cả việc quét lại. Nếu không, người bị khiếu nại chỉ cần quét thẻ thêm
+        // lần nữa là lại thấy hồ sơ - vì chính phản hồi của /api/scan đã chứa bệnh án.
+        if (await isComplained(responderId, qr.citizenId)) {
+          res.status(403).json({ error: "Access to this citizen has been revoked following a complaint" });
+          return;
+        }
+
         await grantAccessSession(responderId, qr.citizenId, "QR");
 
         await publishEmergencyEvent("victim.identified", {
@@ -133,7 +149,7 @@ scanRoutes.post(
           citizen,
           record: record || null,
           accessGranted: true,
-          expiresIn: 3600,
+          expiresIn: SESSION_TTL_SECONDS,
         });
         return;
       }
@@ -188,7 +204,7 @@ scanRoutes.post(
             record: record || null,
             topMatches: matches,
             accessGranted: true,
-            expiresIn: 3600,
+            expiresIn: SESSION_TTL_SECONDS,
           });
         } else {
           res.status(200).json({

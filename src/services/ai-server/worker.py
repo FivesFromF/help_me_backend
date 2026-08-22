@@ -93,6 +93,31 @@ def update_job_status(job_id: str, status: str, result: Optional[Dict[str, Any]]
         logger.error(f"Failed to update job {job_id} in DynamoDB: {e}")
 
 
+def is_complained(responder_id: str, victim_id: str) -> bool:
+    """
+    Nạn nhân đã khiếu nại lần truy cập này chưa?
+
+    Khiếu nại là chung cuộc, và nhận diện khuôn mặt cũng là một đường truy cập - nếu không kiểm tra
+    ở đây thì người bị khiếu nại chỉ cần quét mặt là lại thấy bệnh án, dù NFC và QR đều đã bị chặn.
+    Lỗi truy vấn thì trả về False: không chặn được một ca cấp cứu chỉ vì cơ sở dữ liệu chớp nháy.
+    """
+    conn = get_db_connection()
+    if not conn:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM access_sessions WHERE responder_id = %s AND victim_id = %s::uuid AND status = 'COMPLAINED' LIMIT 1",
+                (responder_id, victim_id),
+            )
+            return cur.fetchone() is not None
+    except Exception as e:
+        logger.error(f"Failed to check complaint status: {e}")
+        return False
+    finally:
+        conn.close()
+
+
 def grant_access_session(responder_id: str, victim_id: str):
     """
     Cấp quyền truy cập 1 giờ, nay ghi vào bảng Postgres `access_sessions` thay vì DynamoDB.
@@ -110,11 +135,12 @@ def grant_access_session(responder_id: str, victim_id: str):
             cur.execute(
                 """
                 INSERT INTO access_sessions (responder_id, victim_id, method, granted_at, expires_at)
-                VALUES (%s, %s::uuid, 'FACE', NOW(), NOW() + INTERVAL '1 hour')
+                VALUES (%s, %s::uuid, 'FACE', NOW(), NOW() + INTERVAL '12 hours')
                 ON CONFLICT (responder_id, victim_id)
                 DO UPDATE SET expires_at = EXCLUDED.expires_at,
                               granted_at = EXCLUDED.granted_at,
-                              method     = EXCLUDED.method
+                              method     = EXCLUDED.method,
+                              status     = 'ACTIVE'
                 """,
                 (responder_id, victim_id),
             )
@@ -263,7 +289,22 @@ def process_s3_image(processor: FaceProcessor, bucket: str, key: str):
                     primary_victim_id = primary["victim"]["id"]
                     primary_distance = primary["distance"]
 
-                    # Grant 1-hour temporary session for primary match
+                    # Khiếu nại chặn cả đường nhận diện khuôn mặt, không chỉ NFC/QR.
+                    if is_complained(responder_id, primary_victim_id):
+                        logger.warning(
+                            f"Match suppressed for job {job_id}: access to {primary_victim_id} was complained about"
+                        )
+                        update_job_status(
+                            job_id,
+                            "COMPLETED",
+                            result={
+                                "matchStatus": "ACCESS_REVOKED",
+                                "message": "Access to this citizen has been revoked following a complaint",
+                            },
+                        )
+                        return
+
+                    # Grant 12-hour temporary session for primary match
                     grant_access_session(responder_id, primary_victim_id)
 
                     # Emit victim.identified Event
