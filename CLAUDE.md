@@ -25,7 +25,7 @@ One TypeScript tree (`src/`, one `tsconfig.json`, one Prisma client, one `src/sh
 | `src/services/ai-server/` | Python SQS consumer — 512-d face embeddings, `pgvector` match | `requirements.txt` / `Dockerfile` |
 | `src/functions/*/handler.ts` | AWS Lambdas — `audit-worker`, `grant-permission-worker`, `notification-worker`, `post-confirmation` | `node build.js` (esbuild → zip → `infra/modules/`) |
 
-CQRS: the two Express servers are the write/read pair, and everything asynchronous hangs off EventBridge. `infra/` is Terraform (real cloud); `local-infra/` is a Serverless-offline emulation stack and is never deployed. Details: [[Architecture/Code_Layout]], [[Architecture/CQRS_Pattern]], [[Architecture/EventBridge_Sync]].
+CQRS: the two Express servers are the write/read pair, and everything asynchronous hangs off EventBridge. `infra/` is Terraform (real cloud, deployed 2026-08-22 — endpoints and shipping steps in [[Runbooks/Cloud_Deployment]]); `local-infra/` is a Serverless-offline emulation stack and is never deployed. Details: [[Architecture/Code_Layout]], [[Architecture/CQRS_Pattern]], [[Architecture/EventBridge_Sync]].
 
 ## Commands
 
