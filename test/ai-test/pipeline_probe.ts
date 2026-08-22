@@ -19,14 +19,22 @@ const REPO = "D:/CODE/WEBDEV/WEBDEV_PROJECT/help_me/help_me_backend";
 const BUCKET = "helpme-avatars-local";
 const QUEUE = "http://127.0.0.1:9324/queue/helpme-ai-jobs-queue";
 const creds = { accessKeyId: "test", secretAccessKey: "test" };
+// s3rver hardcodes a single key pair (S3RVER/S3RVER) in lib/models/account.js and answers every
+// other key with 403 InvalidAccessKeyId before it ever looks at the signature — so custom.s3.accessKeyId
+// cannot change it and this client needs its own creds. ElasticMQ and DynamoDB Local accept anything.
+const s3Creds = { accessKeyId: "S3RVER", secretAccessKey: "S3RVER" };
 const region = "ap-southeast-1";
 
-const s3 = new S3Client({ endpoint: "http://127.0.0.1:4569", forcePathStyle: true, region, credentials: creds });
+const s3 = new S3Client({ endpoint: "http://127.0.0.1:4569", forcePathStyle: true, region, credentials: s3Creds });
 const sqs = new SQSClient({ endpoint: "http://127.0.0.1:9324", region, credentials: creds });
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ endpoint: "http://127.0.0.1:8001", region, credentials: creds }));
 const prisma = new PrismaClient();
 
-const IMAGE = path.join(REPO, "test/ai-test/test-images/input/good.png");
+// plain-avatar.jpg, not good.png: the large .png fixtures are screen captures, and MiniFASNetV2
+// scores every one of them FAKE (good.png 0.75, so-far.png 0.93) because a photo of a screen is
+// exactly the presentation attack it is trained to reject. "good" there means framing, not liveness.
+// plain-avatar.jpg is a real photograph and scores REAL 1.00, so it is the only happy-path fixture.
+const IMAGE = path.join(REPO, "test/ai-test/test-images/input/plain-avatar.jpg");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function pushJob(jobId: string, key: string, extra: Record<string, any>) {
@@ -35,7 +43,7 @@ async function pushJob(jobId: string, key: string, extra: Record<string, any>) {
     Item: { job_id: jobId, status: "PENDING", s3_key: key, created_at: new Date().toISOString(),
             expires_at: Math.floor(Date.now() / 1000) + 7200, ...extra },
   }));
-  await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: fs.readFileSync(IMAGE), ContentType: "image/png" }));
+  await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: fs.readFileSync(IMAGE), ContentType: "image/jpeg" }));
   await sqs.send(new SendMessageCommand({
     QueueUrl: QUEUE,
     MessageBody: JSON.stringify({ detail: { bucket: { name: BUCKET }, object: { key } } }),
