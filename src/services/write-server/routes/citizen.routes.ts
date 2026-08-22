@@ -26,8 +26,13 @@ citizenRoutes.put(
           gender: body.gender !== undefined ? body.gender : undefined,
           emergencyContacts: body.emergencyContacts !== undefined ? body.emergencyContacts : undefined,
           isProfileUpdated: true,
-          firstDeclareProfile: body.firstDeclareProfile ?? true,
-          consentRegulation: body.consentRegulation ?? true,
+          // `!== undefined` chứ KHÔNG phải `?? true`: đây là API cập nhật từng phần, Prisma coi
+          // `undefined` là "không đụng tới cột này". Với `?? true`, một request chỉ sửa số điện
+          // thoại cũng lặng lẽ bật lại consent đã bị rút — và sự kiện audit `user.consent_accepted`
+          // bên dưới chỉ bắn khi client gửi `true` tường minh, nên DB ghi có consent mà audit
+          // trail không có bằng chứng nào. Xem R-03 trong test/api-test/README.md.
+          firstDeclareProfile: body.firstDeclareProfile !== undefined ? body.firstDeclareProfile : undefined,
+          consentRegulation: body.consentRegulation !== undefined ? body.consentRegulation : undefined,
         },
       });
 

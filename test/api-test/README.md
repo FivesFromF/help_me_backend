@@ -5,7 +5,8 @@ infrastructure behaviour is out of scope here.
 
 Run: `npm run test:api` (in-process Express apps on ephemeral ports).
 
-**63 of these cases execute today**; 62 pass and R-03 fails against a real defect (note F).
+**63 of these cases execute today, and all 63 pass.** R-03 failed against a real defect until
+2026-08-22; note F records what it was.
 The face-recognition *happy* paths (W-04, W-06, CW-06, and the `method: "FACE"` branch of S-01)
 cannot pass at all: that route is deprecated in code and fails closed, which §13 now asserts
 instead. The `post-confirmation` cases (§14, PC-01–PC-06) are designed but not yet coded — the
@@ -126,7 +127,7 @@ start from `consentRegulation: false` regardless of suite order.
 | :-- | :-- | :-- | :-- | :-- |
 | R-01 | PUT | `/api/citizen/profile` | full first declaration | **200** + every field persisted to the row |
 | R-02 | GET | `/api/citizen/profile` | after R-01 | **200**, values match what was declared |
-| R-03 | PUT | `/api/citizen/profile` | consent is `false`, body sets only `phone` | **200** with consent still `false` — **fails today, see note F** |
+| R-03 | PUT | `/api/citizen/profile` | consent is `false`, body sets only `phone` | **200** with consent still `false` — see note F |
 | R-04 | PUT | `/api/citizen/profile` | `consentRegulation: false` | **200**, stored as `false` |
 | R-05 | PUT | `/api/citizen/profile` | `x-role: admin` | **403** (route is citizen-only) |
 | R-06 | PUT | `/api/citizen/profile` | `x-role: staff` | **200** — fail-open, see note D |
@@ -137,14 +138,20 @@ R-01 asserts against the database row rather than the echoed response, because t
 the Prisma result directly — asserting on the response alone would not catch a field that was
 dropped before the write.
 
-**Note F — any profile edit silently grants consent.** `src/services/write-server/routes/citizen.routes.ts:30`
-writes `consentRegulation: body.consentRegulation ?? true`, so a request that never mentions
-consent — a phone-number correction, say — flips a previously withdrawn `false` back to `true`.
-Line 29 does the same for `firstDeclareProfile`, so a routine edit also re-marks the profile as a
-first declaration. Because consent is the platform's regulatory record (it emits
-`user.consent_accepted` to the audit bus), this manufactures consent the citizen never gave.
-R-03 is the reproduction and **is expected to fail until the `?? true` defaults become
-`?? undefined`**. Verified 2026-08-20.
+**Note F — any profile edit silently granted consent. FIXED 2026-08-22.**
+`citizen.routes.ts:30` wrote `consentRegulation: body.consentRegulation ?? true`, so a request that
+never mentioned consent — a phone-number correction, say — flipped a previously withdrawn `false`
+back to `true`. Line 29 did the same for `firstDeclareProfile`, re-marking a routine edit as a first
+declaration.
+
+The audit side made it worse: `user.consent_accepted` is only published when the client sends
+`consentRegulation === true` **explicitly**, so the silent flip wrote consent into the database with
+no audit event behind it — the row claimed consent the audit trail had no evidence for.
+
+Both lines now follow the same `!== undefined ? … : undefined` pattern as every other field on this
+partial-update route, so an absent field leaves the column alone. Callers that explicitly send
+`true` are unaffected, which R-01 and the `user.consent_accepted` case still assert. R-03 is the
+reproduction and now passes. Discovered 2026-08-20, fixed 2026-08-22.
 
 ## 4. Citizen — read
 

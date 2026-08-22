@@ -2,8 +2,8 @@
 
 > [!warning] Generated file — `npm run test:api` overwrites it on every run. Edit `test/api-test/README.md` instead; that is the catalogue of intended cases.
 
-**Run at:** 2026-08-21 16:33:08 UTC  
-**Result:** 62/63 passed (98%)
+**Run at:** 2026-08-22 02:35:07 UTC  
+**Result:** 63/63 passed (100%)
 
 ---
 
@@ -15,30 +15,20 @@
 | Citizen API | 9 | 9 |
 | NFC & Scan API | 11 | 11 |
 | Emergency API | 9 | 9 |
-| Registration | 7 | 8 |
+| Registration | 8 | 8 |
 | Events | 7 | 7 |
 | Workers | 7 | 7 |
 | Async Jobs | 6 | 6 |
 | Face (sync path) | 4 | 4 |
-| **Total** | **62** | **63** |
+| **Total** | **63** | **63** |
 
 ## ❌ Failures
 
-### PUT /api/citizen/profile — Partial edit must not silently grant consent
-
-- **Suite:** Registration
-- **Expected status:** 200 · **Got:** 200
-- **Details:** consentRegulation flipped false → true although the request never mentioned consent (citizen.routes.ts:30 `body.consentRegulation ?? true`)
-
+None — every check passed.
 
 ## ⏳ Not yet covered
 
-62/63 passing says nothing about what was never checked. Open gaps, newest concern first:
-
-### 🔴 Header auth bypass (`x-cognito-id`)
-
-- **Why it matters:** `auth.ts` defines SKIP_AUTH but never checks it on the header branch, so a forged `x-cognito-id` authenticates as that user with no token — confirmed against the running containers (no header → 401, forged header → 404, i.e. authenticated then not-found). `x-role` sets the role the same way.
-- **Status:** To be tested by the owner. Fixing it means the 59 checks here must run with SKIP_AUTH=true, since every one of them authenticates by header.
+63/63 passing says nothing about what was never checked. Open gaps, newest concern first:
 
 ### 🟠 `post-confirmation` worker (PC-01–PC-06)
 
@@ -50,10 +40,10 @@
 - **Why it matters:** These happy paths cannot pass as written: `ai.service.ts:6` invokes an AI Lambda named by AI_LAMBDA_NAME and throws "Synchronous face extraction endpoint is deprecated" when it is unset — and it is set nowhere (`.env`, `infra/**.tf`, `docker-compose.yaml`). Running `python main.py` cannot help; `main.py` is an SQS consumer with no HTTP surface. F-01–F-04 (§13) now pin the 500 and the absence of any write or event instead.
 - **Status:** Real biometric coverage lives in `test/ai-test/` (the pipeline) and in the async S3 → SQS → worker.py leg below. Reviving the sync path means setting AI_LAMBDA_NAME and deploying that Lambda — at which point F-01–F-04 are the cases to rewrite.
 
-### The S3 → SQS → worker.py leg
+### The S3 → SQS → worker.py leg (covered elsewhere, not here)
 
-- **Why it matters:** §11 covers both ends (job created, job polled) but not the middle: a real upload to the presigned URL, the ObjectCreated event, and the queue delivery.
-- **Status:** The bucket names now agree (`helpme-avatars-local` in s3.service.ts, local-infra and all three compose services; the unused S3_AVATARS_BUCKET_NAME read is deleted) and `docker compose up -d ai-server` reaches SQS/S3/EventBridge on the host stack. Two things still stand between here and an end-to-end run: `.env` must carry AWS_S3_BUCKET=helpme-avatars-local (it is not in git), and nothing locally turns an S3 ObjectCreated into an SQS message — local-infra defines the queue but no notification rule, so a job has to be enqueued by hand.
+- **Why it matters:** §11 covers both ends (job created, job polled) but not the middle: a real upload to the presigned URL and the queue delivery. Nothing in this suite touches S3, SQS or the worker, so it stays green while the whole async path is dead — which is exactly what happened.
+- **Status:** `npm run test:pipeline` (test/ai-test/pipeline_probe.ts) now proves that leg end to end: enrollment, embedding in Postgres, is_verified, MATCH_FOUND and the 1-hour session — all seven checks pass as of 2026-08-22. test/ai-test/presign_check.ts covers the presigned PUT the probe bypasses. Still true locally: nothing turns an S3 ObjectCreated into an SQS message (local-infra declares the queue but no notification rule), so both probes enqueue by hand.
 
 ## 🧾 All checks
 
@@ -92,7 +82,7 @@
 | 31 | ✅ | Emergency API | GET | `/api/victim/:victimId` | Return 404 when session is valid but victim row is absent | 404 | 404 |
 | 32 | ✅ | Registration | PUT | `/api/citizen/profile` | First declaration persists all submitted fields | 200 | 200 |
 | 33 | ✅ | Registration | GET | `/api/citizen/profile` | Registered information reads back via read service | 200 | 200 |
-| 34 | ❌ | Registration | PUT | `/api/citizen/profile` | Partial edit must not silently grant consent | 200 | 200 |
+| 34 | ✅ | Registration | PUT | `/api/citizen/profile` | Partial edit must not silently grant consent | 200 | 200 |
 | 35 | ✅ | Registration | PUT | `/api/citizen/profile` | Explicit consentRegulation:false is stored | 200 | 200 |
 | 36 | ✅ | Registration | PUT | `/api/citizen/profile` | Reject profile declaration by admin role | 403 | 403 |
 | 37 | ✅ | Registration | PUT | `/api/citizen/profile` | Unknown role 'staff' falls through to citizen (fail-open) | 200 | 200 |
