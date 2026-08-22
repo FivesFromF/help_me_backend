@@ -137,6 +137,25 @@ resource "aws_lb_listener_rule" "write_service" {
   }
 }
 
+# Admin dashboard reads. These live in their own rule because an ALB listener rule accepts at most
+# five condition values and read_service already uses all five; without a matching rule the path
+# would fall through to the listener's default action instead of reaching the read service.
+resource "aws_lb_listener_rule" "admin_read" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 30
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.read.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/api/v1/admin/*", "/api/admin/*"]
+    }
+  }
+}
+
 resource "aws_lb_listener_rule" "read_service" {
   listener_arn = aws_lb_listener.http.arn
   priority     = 20

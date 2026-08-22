@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { CognitoJwtVerifier } from "aws-jwt-verify";
+import { ensureCitizenProvisioned } from "../services/provision.service";
 
 export interface AuthContext {
   userId: string;
@@ -79,6 +80,20 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
           role: extractRole(groups),
           email: (payload.email as string) || (payload["cognito:username"] as string) || undefined,
         };
+
+        // Tạo hàng citizen ngay lần gọi đầu tiên nếu chưa có. `post-confirmation` chạy đúng một lần,
+        // không retry và nuốt lỗi, nên một lần hỏng là người dùng đăng nhập được mà mọi route đều
+        // 404 vĩnh viễn. Provision ở đây dùng chính `sub` mà API tra cứu, nên id không thể lệch.
+        await ensureCitizenProvisioned({
+          cognitoId: payload.sub,
+          email: typeof payload.email === "string" ? payload.email : undefined,
+          fullName: typeof payload.name === "string" ? payload.name : undefined,
+          // Có ở cả access token (`username`) lẫn ID token (`cognito:username`); dùng để hỏi
+          // Cognito lấy email thật khi token không kèm claim `email`.
+          username:
+            (payload["cognito:username"] as string) || (payload.username as string) || undefined,
+        });
+
         return next();
       } catch (err) {
         console.warn("[auth] JWT verification failed:", err);

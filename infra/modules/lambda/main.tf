@@ -163,22 +163,9 @@ resource "aws_iam_role_policy_attachment" "grant_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-resource "aws_iam_policy" "grant_dynamodb" {
-  name = "${var.project_name}-grant-dynamodb-policy"
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action   = "dynamodb:PutItem"
-      Effect   = "Allow"
-      Resource = var.sessions_table_arn
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "grant_dynamodb_attach" {
-  role       = aws_iam_role.grant_permission_worker_role.name
-  policy_arn = aws_iam_policy.grant_dynamodb.arn
-}
+# grant-permission-worker used to hold dynamodb:PutItem on the access-sessions table. Sessions moved
+# to Postgres on 2026-08-22 and the worker is now a no-op, so it writes nothing and needs no data
+# permissions - only the basic execution role for CloudWatch logs, attached below.
 
 resource "aws_lambda_function" "grant_permission_worker" {
   filename      = "${path.module}/grant_permission_worker.zip"
@@ -189,7 +176,6 @@ resource "aws_lambda_function" "grant_permission_worker" {
 
   environment {
     variables = {
-      ACCESS_SESSIONS_TABLE = var.sessions_table_name
     }
   }
 
@@ -305,8 +291,6 @@ variable "smtp_from" {
 
 variable "database_url" {}
 variable "user_pool_arn" {}
-variable "sessions_table_arn" {}
-variable "sessions_table_name" {}
 variable "audit_table_arn" {}
 variable "audit_table_name" {}
 

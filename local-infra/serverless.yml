@@ -22,7 +22,6 @@ provider:
     # --- Application config ---
     DATABASE_URL: ${env:DATABASE_URL, "postgres://postgres:password@localhost:5432/helpme"}
     SCAN_JOBS_TABLE: helpme-scan-jobs
-    ACCESS_SESSIONS_TABLE: helpme-access-sessions
     AUDIT_TABLE_NAME: helpme-audit-logs
     AWS_S3_BUCKET: helpme-avatars-local
     CORE_SYSTEM_BUS_NAME: helpme-system-bus
@@ -168,21 +167,6 @@ resources:
             AttributeType: S
         KeySchema:
           - AttributeName: job_id
-            KeyType: HASH
-        TimeToLiveSpecification:
-          AttributeName: expires_at
-          Enabled: true
-
-    AccessSessionsTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: helpme-access-sessions
-        BillingMode: PAY_PER_REQUEST
-        AttributeDefinitions:
-          - AttributeName: session_id
-            AttributeType: S
-        KeySchema:
-          - AttributeName: session_id
             KeyType: HASH
         TimeToLiveSpecification:
           AttributeName: expires_at

@@ -58,8 +58,6 @@ module "lambda" {
   user_pool_arn = module.auth.user_pool_arn
 
   # DynamoDB References
-  sessions_table_name = module.dynamodb.sessions_table_name
-  sessions_table_arn  = module.dynamodb.sessions_table_arn
   audit_table_name    = module.dynamodb.audit_table_name
   audit_table_arn     = module.dynamodb.audit_table_arn
 
@@ -109,8 +107,6 @@ module "ai_service" {
   queue_arn            = module.sqs.queue_arn
   scan_jobs_table_name = module.dynamodb.scan_jobs_table_name
   scan_jobs_table_arn  = module.dynamodb.scan_jobs_table_arn
-  sessions_table_name  = module.dynamodb.sessions_table_name
-  sessions_table_arn   = module.dynamodb.sessions_table_arn
   avatars_bucket_name  = module.s3.bucket_name
   avatars_bucket_arn   = module.s3.bucket_arn
   db_cluster_endpoint  = module.rds.cluster_endpoint
@@ -158,8 +154,6 @@ module "ecs" {
   system_secret       = var.system_secret
 
   # DynamoDB Sessions
-  sessions_table_name = module.dynamodb.sessions_table_name
-  sessions_table_arn  = module.dynamodb.sessions_table_arn
 
   # Cognito & Audit
   user_pool_id     = module.auth.user_pool_id

@@ -8,7 +8,12 @@ export const citizenRoutes = Router();
 
 // PUT /api/citizen/profile — Update citizen profile & consent
 citizenRoutes.put(
-  ["/citizen/profile", "/api/citizen/profile", "/api/v1/write/citizen/profile", "/api/v1/citizen/profile"],
+  [
+    "/citizen/profile",
+    "/api/citizen/profile",
+    "/api/v1/write/citizen/profile",
+    "/api/v1/citizen/profile",
+  ],
   requireRole(["citizen"]),
   async (req: Request, res: Response): Promise<void> => {
     try {
@@ -16,6 +21,12 @@ citizenRoutes.put(
       const body = req.body || {};
 
       const email = body.email || req.auth?.email || `${userId}@helpme.local`;
+
+      // Khai báo CCCD được tính là đã xác minh danh tính. Kiểm tra chuỗi rỗng để `cccdNumber: ""`
+      // hoặc `null` không vô tình bật cờ. Lưu ý `is_verified` cũng được worker AI bật sau khi đăng
+      // ký khuôn mặt (worker.py:188), nên cờ này nay mang hai ý nghĩa - chỉ bật, không bao giờ tắt.
+      const declaresCccd =
+        typeof body.cccdNumber === "string" && body.cccdNumber.trim() !== "";
 
       const updated = await prisma.citizen.upsert({
         where: { cognitoId: userId },
@@ -26,29 +37,57 @@ citizenRoutes.put(
           phone: body.phone,
           address: body.address,
           cccdNumber: body.cccdNumber,
-          dateOfBirth: body.dateOfBirth ? new Date(body.dateOfBirth) : undefined,
+          dateOfBirth: body.dateOfBirth
+            ? new Date(body.dateOfBirth)
+            : undefined,
           gender: body.gender,
           emergencyContacts: body.emergencyContacts,
           isProfileUpdated: true,
-          firstDeclareProfile: body.firstDeclareProfile !== undefined ? body.firstDeclareProfile : true,
-          consentRegulation: body.consentRegulation !== undefined ? body.consentRegulation : false,
+          isVerified: declaresCccd,
+          firstDeclareProfile:
+            body.firstDeclareProfile !== undefined
+              ? body.firstDeclareProfile
+              : true,
+          consentRegulation:
+            body.consentRegulation !== undefined
+              ? body.consentRegulation
+              : false,
         },
         update: {
+          // Cho phép sửa email: hàng citizen có thể đã được tạo tự động với địa chỉ giữ chỗ
+          // (`<sub>@users.noreply.helpme.local`) khi token đầu tiên là access token - loại token
+          // Cognito không kèm claim `email`. Không cho phép sửa thì địa chỉ giả đó là vĩnh viễn.
+          email: body.email !== undefined ? body.email : undefined,
           fullName: body.fullName !== undefined ? body.fullName : undefined,
           phone: body.phone !== undefined ? body.phone : undefined,
           address: body.address !== undefined ? body.address : undefined,
-          cccdNumber: body.cccdNumber !== undefined ? body.cccdNumber : undefined,
-          dateOfBirth: body.dateOfBirth ? new Date(body.dateOfBirth) : undefined,
+          cccdNumber:
+            body.cccdNumber !== undefined ? body.cccdNumber : undefined,
+          dateOfBirth: body.dateOfBirth
+            ? new Date(body.dateOfBirth)
+            : undefined,
           gender: body.gender !== undefined ? body.gender : undefined,
-          emergencyContacts: body.emergencyContacts !== undefined ? body.emergencyContacts : undefined,
+          emergencyContacts:
+            body.emergencyContacts !== undefined
+              ? body.emergencyContacts
+              : undefined,
           isProfileUpdated: true,
+          // Chỉ bật, không tắt: `undefined` giữ nguyên cờ, nên người đã xác minh bằng khuôn mặt
+          // không bị hạ xuống chỉ vì một lần sửa hồ sơ không kèm CCCD.
+          isVerified: declaresCccd ? true : undefined,
           // `!== undefined` chứ KHÔNG phải `?? true`: đây là API cập nhật từng phần, Prisma coi
           // `undefined` là "không đụng tới cột này". Với `?? true`, một request chỉ sửa số điện
           // thoại cũng lặng lẽ bật lại consent đã bị rút — và sự kiện audit `user.consent_accepted`
           // bên dưới chỉ bắn khi client gửi `true` tường minh, nên DB ghi có consent mà audit
           // trail không có bằng chứng nào. Xem R-03 trong test/api-test/README.md.
-          firstDeclareProfile: body.firstDeclareProfile !== undefined ? body.firstDeclareProfile : undefined,
-          consentRegulation: body.consentRegulation !== undefined ? body.consentRegulation : undefined,
+          firstDeclareProfile:
+            body.firstDeclareProfile !== undefined
+              ? body.firstDeclareProfile
+              : undefined,
+          consentRegulation:
+            body.consentRegulation !== undefined
+              ? body.consentRegulation
+              : undefined,
         },
       });
 
@@ -72,15 +111,27 @@ citizenRoutes.put(
 
       res.status(200).json({ profile: updated });
     } catch (err: any) {
+      // `citizens.email` là @unique - trùng địa chỉ là lỗi của người gọi, không phải lỗi máy chủ.
+      if (err?.code === "P2002" && String(err?.meta?.target ?? "").includes("email")) {
+        res.status(409).json({ error: "Email already in use by another account" });
+        return;
+      }
       console.error("[citizen.routes] Error updating profile:", err);
-      res.status(500).json({ error: err.message || "Failed to update profile" });
+      res
+        .status(500)
+        .json({ error: err.message || "Failed to update profile" });
     }
-  }
+  },
 );
 
 // PUT /api/citizen/medical-record — Create or update medical facts
 citizenRoutes.put(
-  ["/citizen/medical-record", "/api/citizen/medical-record", "/api/v1/write/citizen/medical-record", "/api/v1/citizen/medical-record"],
+  [
+    "/citizen/medical-record",
+    "/api/citizen/medical-record",
+    "/api/v1/write/citizen/medical-record",
+    "/api/v1/citizen/medical-record",
+  ],
   requireRole(["citizen"]),
   async (req: Request, res: Response): Promise<void> => {
     try {
@@ -127,14 +178,21 @@ citizenRoutes.put(
       res.status(200).json({ record });
     } catch (err: any) {
       console.error("[citizen.routes] Error updating medical record:", err);
-      res.status(500).json({ error: err.message || "Failed to update medical record" });
+      res
+        .status(500)
+        .json({ error: err.message || "Failed to update medical record" });
     }
-  }
+  },
 );
 
 // POST /api/citizen/face — Register face biometrics
 citizenRoutes.post(
-  ["/citizen/face", "/api/citizen/face", "/api/v1/write/citizen/face", "/api/v1/citizen/face"],
+  [
+    "/citizen/face",
+    "/api/citizen/face",
+    "/api/v1/write/citizen/face",
+    "/api/v1/citizen/face",
+  ],
   requireRole(["citizen"]),
   async (req: Request, res: Response): Promise<void> => {
     try {
@@ -151,15 +209,17 @@ citizenRoutes.post(
       await prisma.$executeRawUnsafe(
         `UPDATE citizens SET face_embedding = $1::vector, is_verified = true, updated_at = NOW() WHERE cognito_id = $2`,
         vectorString,
-        userId
+        userId,
       );
 
       await publishSystemEvent("citizen.face.registered", { actorId: userId });
 
-      res.status(200).json({ success: true, message: "Face registered successfully" });
+      res
+        .status(200)
+        .json({ success: true, message: "Face registered successfully" });
     } catch (err: any) {
       console.error("[citizen.routes] Error registering face:", err);
       res.status(500).json({ error: err.message || "Failed to register face" });
     }
-  }
+  },
 );

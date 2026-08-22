@@ -97,10 +97,12 @@ async function main() {
     check(result.matchStatus === "MATCH_FOUND", "matchStatus MATCH_FOUND", `got ${result.matchStatus}`);
     check(result.victim?.id === citizen.id, "matched the probe citizen", `distance=${result.distance}`);
 
-    const session = await ddb.send(new GetCommand({
-      TableName: "helpme-access-sessions", Key: { session_id: `${responderId}#${citizen.id}` } }));
-    check(!!session.Item, "1-hour access session granted by the worker",
-      session.Item ? `expires_at=${session.Item.expires_at}` : "no session row");
+    // Sessions moved from DynamoDB to Postgres on 2026-08-22; worker.py writes access_sessions.
+    const session = await prisma.accessSession.findFirst({
+      where: { responderId, victimId: citizen.id },
+    });
+    check(!!session, "1-hour access session granted by the worker",
+      session ? `expires_at=${session.expiresAt.toISOString()}` : "no access_sessions row");
 
     console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`);
   } catch (err: any) {
@@ -111,7 +113,7 @@ ABORTED: ${err?.name ?? "Error"}: ${err?.message ?? err}`);
   } finally {
     await ddb.send(new DeleteCommand({ TableName: "helpme-scan-jobs", Key: { job_id: enrollId } })).catch(() => {});
     await ddb.send(new DeleteCommand({ TableName: "helpme-scan-jobs", Key: { job_id: scanId } })).catch(() => {});
-    await ddb.send(new DeleteCommand({ TableName: "helpme-access-sessions", Key: { session_id: `${responderId}#${citizen.id}` } })).catch(() => {});
+    await prisma.accessSession.deleteMany({ where: { responderId, victimId: citizen.id } }).catch(() => {});
     await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: enrollKey })).catch(() => {});
     await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: scanKey })).catch(() => {});
     await prisma.citizen.delete({ where: { id: citizen.id } }).catch(() => {});

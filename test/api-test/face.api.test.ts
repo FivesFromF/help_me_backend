@@ -49,6 +49,12 @@ export async function runFaceApiTests(
 
   // ── F-01 POST /api/citizen/face → 500 carrying the deprecation message ──────
   clearEvents();
+  // Snapshot first: is_verified is no longer a proxy for "has a face embedding". Declaring a
+  // cccdNumber also sets it (citizen.routes.ts), and earlier suites do exactly that to this shared
+  // citizen - so the invariant to assert is that a FAILED face registration changes nothing, not
+  // that the flag happens to be false.
+  const beforeFace = await readFaceColumns(citizenId);
+
   const faceRes = await performRequest(writeApp, "POST", "/api/citizen/face", citizenHeaders, {
     imageBase64: TINY_PNG_BASE64,
   });
@@ -70,7 +76,10 @@ export async function runFaceApiTests(
   // ── F-02 the row is untouched: the UPDATE at citizen.routes.ts:134 is unreachable ──
   {
     const row = await readFaceColumns(citizenId);
-    const untouched = row.embedding_is_null === true && row.is_verified === false;
+    const untouched =
+      row.embedding_is_null === true &&
+      row.embedding_is_null === beforeFace.embedding_is_null &&
+      row.is_verified === beforeFace.is_verified;
     recordTest(
       results,
       SUITE,

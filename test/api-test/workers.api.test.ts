@@ -22,7 +22,6 @@ const SUITE = "Workers";
 
 const ddbEndpoint =
   process.env.DYNAMODB_ENDPOINT || process.env.AWS_ENDPOINT_URL || "http://127.0.0.1:8001";
-const SESSIONS_TABLE = process.env.ACCESS_SESSIONS_TABLE || "helpme-access-sessions";
 const AUDIT_TABLE = process.env.AUDIT_TABLE_NAME || "helpme-audit-logs";
 
 const ddb = DynamoDBDocumentClient.from(
@@ -70,7 +69,6 @@ export async function runWorkerApiTests(
   // a real provider, and an alert email must never leave the machine during a test run.
   const smtpPort = await startSmtpCapture();
   process.env.DYNAMODB_ENDPOINT = ddbEndpoint;
-  process.env.ACCESS_SESSIONS_TABLE = SESSIONS_TABLE;
   process.env.AUDIT_TABLE_NAME = AUDIT_TABLE; // absent from .env — the worker drops events without it
   process.env.SMTP_HOST = "127.0.0.1";
   process.env.SMTP_PORT = String(smtpPort);
@@ -89,14 +87,22 @@ export async function runWorkerApiTests(
 
   // Start from a clean slate: a stale session from an earlier run would make WK-02 pass
   // without the worker doing anything.
-  await ddb
-    .send(new DeleteCommand({ TableName: SESSIONS_TABLE, Key: { session_id: sessionId } }))
+  await prisma.accessSession
+    .deleteMany({ where: { responderId, victimId: citizenId } })
     .catch(() => undefined);
 
-  // ── WK-01 victim.identified → grant-permission-worker writes a session ──────
+  // ── WK-01 the scan itself grants the 1-hour access session ──────────────────
+  // Was: grant-permission-worker wrote it to DynamoDB. Sessions moved to Postgres on 2026-08-22
+  // and that Lambda has no VPC access to RDS, so granting now happens synchronously inside the scan
+  // route - which also removes the old race where the response claimed accessGranted before the
+  // row existed. The worker is retired to a no-op; asserting the scan's effect is the real contract.
   let grantedEvent: any = null;
   {
     clearEvents();
+    await prisma.accessSession
+      .deleteMany({ where: { responderId, victimId: citizenId } })
+      .catch(() => undefined);
+
     await performRequest(readApp, "POST", "/api/scan", responderHeaders, {
       method: "NFC",
       tagId: testTagId,
@@ -105,26 +111,19 @@ export async function runWorkerApiTests(
     const published = findEvent("victim.identified", EMERGENCY_BUS);
     grantedEvent = published ? envelope("victim.identified", published.detail, EMERGENCY_BUS) : null;
 
-    let item: any = null;
-    if (grantedEvent) {
-      await grantMain(grantedEvent);
-      const got = await ddb.send(
-        new GetCommand({ TableName: SESSIONS_TABLE, Key: { session_id: sessionId } })
-      );
-      item = got.Item ?? null;
-    }
+    const row = await prisma.accessSession.findUnique({
+      where: { responderId_victimId: { responderId, victimId: citizenId } },
+    });
 
-    const ttl = item ? item.expires_at - Math.floor(Date.now() / 1000) : 0;
+    const ttl = row ? Math.floor((row.expiresAt.getTime() - Date.now()) / 1000) : 0;
     recordEffect(
       results,
       "victim.identified grants a 1-hour access session",
-      "grant-permission-worker",
-      !!item && item.victim_id === citizenId && ttl > 3500 && ttl <= 3600,
-      !grantedEvent
-        ? "the scan published no victim.identified event to assert against"
-        : !item
-          ? `no session row at ${sessionId} in ${SESSIONS_TABLE}`
-          : `victim_id=${item.victim_id} ttl=${ttl}s`
+      "scan route (access_sessions)",
+      !!row && row.victimId === citizenId && ttl > 3500 && ttl <= 3600,
+      !row
+        ? `no access_sessions row for ${responderId} -> ${citizenId}`
+        : `victim_id=${row.victimId} ttl=${ttl}s`
     );
   }
 
@@ -195,13 +194,26 @@ export async function runWorkerApiTests(
   {
     clearMail();
     const contactEmail = `next-of-kin-${Date.now()}@helpme.local`;
+    const contacts = [{ name: "Nguyen Van A", email: contactEmail, phone: "+84900111222" }];
     await prisma.citizen.update({
       where: { id: citizenId },
-      data: { emergencyContacts: [{ name: "Nguyen Van A", email: contactEmail, phone: "+84900111222" }] },
+      data: { emergencyContacts: contacts },
     });
 
+    // The event carries the victim payload: notification-worker no longer queries Postgres, so the
+    // publisher (scan.routes.ts / worker.py) attaches fullName and emergencyContacts. Dropping the
+    // DB read is what lets that Lambda stay outside the VPC and skip a NAT gateway. Sending
+    // `{ targetId, method }` alone now yields no email, by design.
     await notifyMain(
-      envelope("victim.identified", { targetId: citizenId, method: "NFC" }, EMERGENCY_BUS)
+      envelope(
+        "victim.identified",
+        {
+          targetId: citizenId,
+          method: "NFC",
+          victim: { fullName: "Pham Minh Duc", emergencyContacts: contacts },
+        },
+        EMERGENCY_BUS
+      )
     );
 
     const mail = mailTo(contactEmail);
@@ -235,25 +247,21 @@ export async function runWorkerApiTests(
   {
     const orphan = "responder-orphan-01";
     await grantMain(envelope("victim.identified", { responderId: orphan }, EMERGENCY_BUS));
-    const got = await ddb.send(
-      new QueryCommand({
-        TableName: SESSIONS_TABLE,
-        KeyConditionExpression: "session_id = :s",
-        ExpressionAttributeValues: { ":s": `${orphan}#undefined` },
-      })
-    );
+    const got = await prisma.accessSession.findMany({
+      where: { responderId: orphan },
+    });
     recordEffect(
       results,
       "Event without a victim writes no session",
       "grant-permission-worker",
-      (got.Items?.length ?? 0) === 0,
-      (got.Items?.length ?? 0) === 0 ? undefined : "a session was granted with no victim"
+      got.length === 0,
+      got.length === 0 ? undefined : "a session was granted with no victim"
     );
   }
 
   // ── Teardown ────────────────────────────────────────────────────────────────
-  await ddb
-    .send(new DeleteCommand({ TableName: SESSIONS_TABLE, Key: { session_id: sessionId } }))
+  await prisma.accessSession
+    .deleteMany({ where: { responderId } })
     .catch(() => undefined);
   await prisma.citizen.update({
     where: { id: citizenId },

@@ -18,11 +18,6 @@ output "audit_logs_table" {
   value       = module.dynamodb.audit_table_name
 }
 
-output "access_sessions_table" {
-  description = "The DynamoDB table for access sessions"
-  value       = module.dynamodb.sessions_table_name
-}
-
 output "system_bus_name" {
   description = "The name of the Core System EventBridge bus"
   value       = module.eventbridge.system_bus_name

@@ -2,8 +2,8 @@
 
 > [!warning] Generated file — `npm run test:api` overwrites it on every run. Edit `test/api-test/README.md` instead; that is the catalogue of intended cases.
 
-**Run at:** 2026-08-22 02:35:07 UTC  
-**Result:** 63/63 passed (100%)
+**Run at:** 2026-08-22 10:08:06 UTC  
+**Result:** 75/75 passed (100%)
 
 ---
 
@@ -13,14 +13,14 @@
 | :-- | --: | --: |
 | Health | 2 | 2 |
 | Citizen API | 9 | 9 |
-| NFC & Scan API | 11 | 11 |
+| NFC & Credentials API | 23 | 23 |
 | Emergency API | 9 | 9 |
 | Registration | 8 | 8 |
 | Events | 7 | 7 |
 | Workers | 7 | 7 |
 | Async Jobs | 6 | 6 |
 | Face (sync path) | 4 | 4 |
-| **Total** | **63** | **63** |
+| **Total** | **75** | **75** |
 
 ## ❌ Failures
 
@@ -28,7 +28,7 @@ None — every check passed.
 
 ## ⏳ Not yet covered
 
-63/63 passing says nothing about what was never checked. Open gaps, newest concern first:
+75/75 passing says nothing about what was never checked. Open gaps, newest concern first:
 
 ### 🟠 `post-confirmation` worker (PC-01–PC-06)
 
@@ -60,58 +60,70 @@ None — every check passed.
 | 9 | ✅ | Citizen API | GET | `/api/citizen/nfc-tags` | List registered NFC hardware tags linked to citizen | 200 | 200 |
 | 10 | ✅ | Citizen API | PUT | `/api/citizen/medical-record` | Reject medical record write for absent citizen row | 404 | 404 |
 | 11 | ✅ | Citizen API | GET | `/api/citizen/medical-record` | Absent medical record returns 200 with empty object (not 404) | 200 | 200 |
-| 12 | ✅ | NFC & Scan API | POST | `/api/nfc` | Register NFC card & calculate burnable Hash ID | 200 | 200 |
-| 13 | ✅ | NFC & Scan API | POST | `/api/nfc` | Reject NFC registration missing serial number (tagId) | 400 | 400 |
-| 14 | ✅ | NFC & Scan API | POST | `/api/scan` | Responder NFC scan resolves victim & medical profile | 200 | 200 |
-| 15 | ✅ | NFC & Scan API | POST | `/api/scan` | Reject NFC scan with invalid / tampered hash ID | 403 | 403 |
-| 16 | ✅ | NFC & Scan API | POST | `/api/nfc` | Reject admin NFC registration without citizenId | 400 | 400 |
-| 17 | ✅ | NFC & Scan API | POST | `/api/nfc` | Admin citizenId is never validated (FK violation surfaces as 500) | 500 | 500 |
-| 18 | ✅ | NFC & Scan API | POST | `/api/nfc` | Re-registering an existing tagId updates rather than duplicating | 200 | 200 |
-| 19 | ✅ | NFC & Scan API | POST | `/api/scan` | Reject NFC scan missing tagId and hashId | 400 | 400 |
-| 20 | ✅ | NFC & Scan API | POST | `/api/scan` | Return 404 for unknown or inactive NFC tag | 404 | 404 |
-| 21 | ✅ | NFC & Scan API | POST | `/api/scan` | Reject FACE scan without imageBase64 | 400 | 400 |
-| 22 | ✅ | NFC & Scan API | POST | `/api/scan` | Reject unsupported scan method (QR) | 400 | 400 |
-| 23 | ✅ | Emergency API | POST | `/api/emergency/report` | File incident emergency report with GPS coordinates | 201 | 201 |
-| 24 | ✅ | Emergency API | POST | `/api/emergency/report` | Reject emergency report missing GPS coordinates | 400 | 400 |
-| 25 | ✅ | Emergency API | POST | `/api/upload-url` | Generate presigned S3 URL for async biometric processing | 200 | 200 |
-| 26 | ✅ | Emergency API | GET | `/api/victim/:victimId` | Block unauthorized victim record access without active session | 403 | 403 |
-| 27 | ✅ | Emergency API | GET | `/api/scan/jobs/:jobId` | Return 404 when querying non-existent scan job ID | 404 | 404 |
-| 28 | ✅ | Emergency API | POST | `/api/emergency/report` | Accept anonymous incident report without victimId | 201 | 201 |
-| 29 | ✅ | Emergency API | GET | `/api/victim/:victimId` | Active access session grants victim record retrieval | 200 | 200 |
-| 30 | ✅ | Emergency API | GET | `/api/victim/:victimId` | Expired access session is refused | 403 | 403 |
-| 31 | ✅ | Emergency API | GET | `/api/victim/:victimId` | Return 404 when session is valid but victim row is absent | 404 | 404 |
-| 32 | ✅ | Registration | PUT | `/api/citizen/profile` | First declaration persists all submitted fields | 200 | 200 |
-| 33 | ✅ | Registration | GET | `/api/citizen/profile` | Registered information reads back via read service | 200 | 200 |
-| 34 | ✅ | Registration | PUT | `/api/citizen/profile` | Partial edit must not silently grant consent | 200 | 200 |
-| 35 | ✅ | Registration | PUT | `/api/citizen/profile` | Explicit consentRegulation:false is stored | 200 | 200 |
-| 36 | ✅ | Registration | PUT | `/api/citizen/profile` | Reject profile declaration by admin role | 403 | 403 |
-| 37 | ✅ | Registration | PUT | `/api/citizen/profile` | Unknown role 'staff' falls through to citizen (fail-open) | 200 | 200 |
-| 38 | ✅ | Registration | PUT | `/api/citizen/profile` | Reject declaration for non-existent citizen row | 404 | 404 |
-| 39 | ✅ | Registration | GET | `/api/citizen/profile` | Return 404 for unregistered citizen profile | 404 | 404 |
-| 40 | ✅ | Events | PUT | `/api/citizen/profile` | Profile update publishes → "citizen.profile.updated" | 200 | 200 |
-| 41 | ✅ | Events | PUT | `/api/citizen/profile` | Accepting consent publishes → "user.consent_accepted" | 200 | 200 |
-| 42 | ✅ | Events | PUT | `/api/citizen/medical-record` | Medical record write publishes → "medical_record.updated" | 200 | 200 |
-| 43 | ✅ | Events | POST | `/api/nfc` | NFC registration publishes → "nfc.registered" | 200 | 200 |
-| 44 | ✅ | Events | POST | `/api/emergency/report` | Emergency report publishes → "emergency.reported" | 201 | 201 |
-| 45 | ✅ | Events | POST | `/api/scan` | Successful scan publishes → "victim.identified" | 200 | 200 |
-| 46 | ✅ | Events | GET | `/api/victim/:victimId` | Granted victim access publishes → "victim.record.accessed" | 200 | 200 |
-| 47 | ✅ | Workers | EVENT | `grant-permission-worker` | victim.identified grants a 1-hour access session | 1 | 1 |
-| 48 | ✅ | Workers | GET | `/api/victim/:victimId` | Session written by the worker unlocks the victim record | 200 | 200 |
-| 49 | ✅ | Workers | EVENT | `audit-worker` | System event is written to the audit trail | 1 | 1 |
-| 50 | ✅ | Workers | EVENT | `audit-worker` | Actorless event is audited under actor 'system' | 1 | 1 |
-| 51 | ✅ | Workers | EVENT | `notification-worker` | victim.identified alerts the emergency contact by email | 1 | 1 |
-| 52 | ✅ | Workers | EVENT | `notification-worker` | Unknown victim sends no alert | 1 | 1 |
-| 53 | ✅ | Workers | EVENT | `grant-permission-worker` | Event without a victim writes no session | 1 | 1 |
-| 54 | ✅ | Async Jobs | POST | `/api/upload-url` | upload-url opens a PENDING FACE_SCAN job | 200 | 200 |
-| 55 | ✅ | Async Jobs | POST | `/api/upload-url` | FACE_ENROLL becomes an ENROLLMENT job under raw-uploads/ | 200 | 200 |
-| 56 | ✅ | Async Jobs | POST | `/api/upload-url` | Presigned upload URL is signed, expiring and key-scoped | 200 | 200 |
-| 57 | ✅ | Async Jobs | GET | `/api/scan/jobs/:jobId` | Polling a fresh job reports PENDING | 200 | 200 |
-| 58 | ✅ | Async Jobs | GET | `/api/scan/jobs/:jobId` | Completed job surfaces the worker's match result | 200 | 200 |
-| 59 | ✅ | Async Jobs | GET | `/api/scan/jobs/:jobId` | Failed job surfaces the rejection reason | 200 | 200 |
-| 60 | ✅ | Face (sync path) | POST | `/api/citizen/face` | Face registration is deprecated without AI_LAMBDA_NAME | 500 | 500 |
-| 61 | ✅ | Face (sync path) | POST | `/api/citizen/face` | Failed registration leaves face_embedding and is_verified alone | 500 | 500 |
-| 62 | ✅ | Face (sync path) | POST | `/api/citizen/face` | Failed registration publishes no citizen.face.registered | 500 | 500 |
-| 63 | ✅ | Face (sync path) | POST | `/api/scan` | FACE scan is deprecated and identifies nobody | 500 | 500 |
+| 12 | ✅ | NFC & Credentials API | POST | `/api/nfc` | Register NFC card & calculate burnable Hash ID | 200 | 200 |
+| 13 | ✅ | NFC & Credentials API | POST | `/api/nfc` | Reject NFC registration missing serial number (tagId) | 400 | 400 |
+| 14 | ✅ | NFC & Credentials API | POST | `/api/nfc` | Reject admin NFC registration without citizenId | 400 | 400 |
+| 15 | ✅ | NFC & Credentials API | POST | `/api/nfc` | Admin citizenId is never validated (FK violation surfaces as 500) | 500 | 500 |
+| 16 | ✅ | NFC & Credentials API | POST | `/api/nfc` | Re-registering an existing tagId updates rather than duplicating | 200 | 200 |
+| 17 | ✅ | NFC & Credentials API | PATCH | `/api/v1/write/nfc/:tagId/status` | Update NFC tag status to INACTIVE (lockout) | 200 | 200 |
+| 18 | ✅ | NFC & Credentials API | PATCH | `/api/v1/write/nfc/:tagId/status` | Reject invalid NFC tag status | 400 | 400 |
+| 19 | ✅ | NFC & Credentials API | PATCH | `/api/v1/write/nfc/:tagId/status` | Reactivate NFC tag status to ACTIVE | 200 | 200 |
+| 20 | ✅ | NFC & Credentials API | POST | `/api/v1/write/qr` | Issue new emergency QR code with cryptographic HMAC payload | 201 | 201 |
+| 21 | ✅ | NFC & Credentials API | GET | `/api/v1/read/citizen/credentials` | List citizen credentials (both NFC tags and QR codes with hashId) | 200 | 200 |
+| 22 | ✅ | NFC & Credentials API | PATCH | `/api/v1/write/qr/:qrId/status` | Update QR code status to LOST (lockout) | 200 | 200 |
+| 23 | ✅ | NFC & Credentials API | POST | `/api/scan` | Refuse emergency scan for QR code marked LOST / INACTIVE | 404 | 404 |
+| 24 | ✅ | NFC & Credentials API | PATCH | `/api/v1/write/qr/:qrId/status` | Reactivate QR code status to ACTIVE | 200 | 200 |
+| 25 | ✅ | NFC & Credentials API | POST | `/api/scan` | Responder NFC scan resolves victim & medical profile | 200 | 200 |
+| 26 | ✅ | NFC & Credentials API | POST | `/api/scan` | Reject NFC scan with invalid / tampered hash ID | 403 | 403 |
+| 27 | ✅ | NFC & Credentials API | POST | `/api/scan` | Responder QR scan resolves victim & medical profile | 200 | 200 |
+| 28 | ✅ | NFC & Credentials API | POST | `/api/scan` | Reject QR scan with invalid / tampered hash ID | 403 | 403 |
+| 29 | ✅ | NFC & Credentials API | POST | `/api/scan` | Reject QR scan missing qrId and hashId | 400 | 400 |
+| 30 | ✅ | NFC & Credentials API | POST | `/api/scan` | Return 404 for unknown or inactive NFC tag | 404 | 404 |
+| 31 | ✅ | NFC & Credentials API | POST | `/api/scan` | Reject FACE scan without imageBase64 | 400 | 400 |
+| 32 | ✅ | NFC & Credentials API | POST | `/api/scan` | Reject unsupported scan method (BLUETOOTH) | 400 | 400 |
+| 33 | ✅ | NFC & Credentials API | DELETE | `/api/v1/write/qr/:qrId` | Delete emergency QR code | 200 | 200 |
+| 34 | ✅ | NFC & Credentials API | DELETE | `/api/v1/write/nfc/:tagId` | Unlink physical NFC tag (clears owner, sets INACTIVE) | 200 | 200 |
+| 35 | ✅ | Emergency API | POST | `/api/emergency/report` | File incident emergency report with GPS coordinates | 201 | 201 |
+| 36 | ✅ | Emergency API | POST | `/api/emergency/report` | Reject emergency report missing GPS coordinates | 400 | 400 |
+| 37 | ✅ | Emergency API | POST | `/api/upload-url` | Generate presigned S3 URL for async biometric processing | 200 | 200 |
+| 38 | ✅ | Emergency API | GET | `/api/victim/:victimId` | Block unauthorized victim record access without active session | 403 | 403 |
+| 39 | ✅ | Emergency API | GET | `/api/scan/jobs/:jobId` | Return 404 when querying non-existent scan job ID | 404 | 404 |
+| 40 | ✅ | Emergency API | POST | `/api/emergency/report` | Accept anonymous incident report without victimId | 201 | 201 |
+| 41 | ✅ | Emergency API | GET | `/api/victim/:victimId` | Active access session grants victim record retrieval | 200 | 200 |
+| 42 | ✅ | Emergency API | GET | `/api/victim/:victimId` | Expired access session is refused | 403 | 403 |
+| 43 | ✅ | Emergency API | GET | `/api/victim/:victimId` | Return 404 when session is valid but victim row is absent | 404 | 404 |
+| 44 | ✅ | Registration | PUT | `/api/citizen/profile` | First declaration persists all submitted fields | 200 | 200 |
+| 45 | ✅ | Registration | GET | `/api/citizen/profile` | Registered information reads back via read service | 200 | 200 |
+| 46 | ✅ | Registration | PUT | `/api/citizen/profile` | Partial edit must not silently grant consent | 200 | 200 |
+| 47 | ✅ | Registration | PUT | `/api/citizen/profile` | Explicit consentRegulation:false is stored | 200 | 200 |
+| 48 | ✅ | Registration | PUT | `/api/citizen/profile` | Reject profile declaration by admin role | 403 | 403 |
+| 49 | ✅ | Registration | PUT | `/api/citizen/profile` | Unknown role 'staff' falls through to citizen (fail-open) | 200 | 200 |
+| 50 | ✅ | Registration | PUT | `/api/citizen/profile` | Auto-provision citizen row on profile declaration (upsert) | 200 | 200 |
+| 51 | ✅ | Registration | GET | `/api/citizen/profile` | Return 404 for unregistered citizen profile | 404 | 404 |
+| 52 | ✅ | Events | PUT | `/api/citizen/profile` | Profile update publishes → "citizen.profile.updated" | 200 | 200 |
+| 53 | ✅ | Events | PUT | `/api/citizen/profile` | Accepting consent publishes → "user.consent_accepted" | 200 | 200 |
+| 54 | ✅ | Events | PUT | `/api/citizen/medical-record` | Medical record write publishes → "medical_record.updated" | 200 | 200 |
+| 55 | ✅ | Events | POST | `/api/nfc` | NFC registration publishes → "nfc.registered" | 200 | 200 |
+| 56 | ✅ | Events | POST | `/api/emergency/report` | Emergency report publishes → "emergency.reported" | 201 | 201 |
+| 57 | ✅ | Events | POST | `/api/scan` | Successful scan publishes → "victim.identified" | 200 | 200 |
+| 58 | ✅ | Events | GET | `/api/victim/:victimId` | Granted victim access publishes → "victim.record.accessed" | 200 | 200 |
+| 59 | ✅ | Workers | EVENT | `scan route (access_sessions)` | victim.identified grants a 1-hour access session | 1 | 1 |
+| 60 | ✅ | Workers | GET | `/api/victim/:victimId` | Session written by the worker unlocks the victim record | 200 | 200 |
+| 61 | ✅ | Workers | EVENT | `audit-worker` | System event is written to the audit trail | 1 | 1 |
+| 62 | ✅ | Workers | EVENT | `audit-worker` | Actorless event is audited under actor 'system' | 1 | 1 |
+| 63 | ✅ | Workers | EVENT | `notification-worker` | victim.identified alerts the emergency contact by email | 1 | 1 |
+| 64 | ✅ | Workers | EVENT | `notification-worker` | Unknown victim sends no alert | 1 | 1 |
+| 65 | ✅ | Workers | EVENT | `grant-permission-worker` | Event without a victim writes no session | 1 | 1 |
+| 66 | ✅ | Async Jobs | POST | `/api/upload-url` | upload-url opens a PENDING FACE_SCAN job | 200 | 200 |
+| 67 | ✅ | Async Jobs | POST | `/api/upload-url` | FACE_ENROLL becomes an ENROLLMENT job under raw-uploads/ | 200 | 200 |
+| 68 | ✅ | Async Jobs | POST | `/api/upload-url` | Presigned upload URL is signed, expiring and key-scoped | 200 | 200 |
+| 69 | ✅ | Async Jobs | GET | `/api/scan/jobs/:jobId` | Polling a fresh job reports PENDING | 200 | 200 |
+| 70 | ✅ | Async Jobs | GET | `/api/scan/jobs/:jobId` | Completed job surfaces the worker's match result | 200 | 200 |
+| 71 | ✅ | Async Jobs | GET | `/api/scan/jobs/:jobId` | Failed job surfaces the rejection reason | 200 | 200 |
+| 72 | ✅ | Face (sync path) | POST | `/api/citizen/face` | Face registration is deprecated without AI_LAMBDA_NAME | 500 | 500 |
+| 73 | ✅ | Face (sync path) | POST | `/api/citizen/face` | Failed registration leaves face_embedding and is_verified alone | 500 | 500 |
+| 74 | ✅ | Face (sync path) | POST | `/api/citizen/face` | Failed registration publishes no citizen.face.registered | 500 | 500 |
+| 75 | ✅ | Face (sync path) | POST | `/api/scan` | FACE scan is deprecated and identifies nobody | 500 | 500 |
 
 ---
 

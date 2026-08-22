@@ -1,45 +1,26 @@
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
-
-const endpoint = process.env.DYNAMODB_ENDPOINT || process.env.AWS_ENDPOINT_URL;
-const ddb = DynamoDBDocumentClient.from(
-  new DynamoDBClient({
-    endpoint: endpoint || undefined,
-    region: process.env.AWS_REGION || "ap-southeast-1",
-    credentials: endpoint ? { accessKeyId: "test", secretAccessKey: "test" } : undefined,
-  })
-);
-const TABLE = process.env.ACCESS_SESSIONS_TABLE;
-const SESSION_TTL_SECONDS = 60 * 60; // 1 hour
-
+/**
+ * RETIRED 2026-08-22 - kept as a no-op so the EventBridge rule has a live target.
+ *
+ * This worker used to write the 1-hour access grant into the DynamoDB table
+ * `helpme-access-sessions`. Sessions now live in Postgres (`access_sessions`), and this Lambda has
+ * no VPC configuration, so it cannot reach RDS at all - the same wall `post-confirmation` hit.
+ *
+ * Granting moved to where identification actually happens: `read-server/routes/scan.routes.ts` and
+ * the Python AI worker, both of which run inside the VPC with a live database connection. That is
+ * strictly better than what this did, because the grant is now synchronous with the scan response.
+ * Previously the response claimed `accessGranted: true` while this worker raced to write the row.
+ *
+ * Left in place rather than deleted: removing it means removing the EventBridge rule and target in
+ * `infra/modules/eventbridge` too, which is a separate infrastructure change. Until then it should
+ * do nothing loudly rather than fail quietly.
+ */
 export const main = async (event: any) => {
-  if (!TABLE) {
-    console.error("[grant] ACCESS_SESSIONS_TABLE not set; dropping event");
-    return;
-  }
-
   const detail = event.detail ?? {};
   const responderId = detail.responderId ?? detail.actorId;
   const victimId = detail.targetId ?? detail.victimId;
-  if (!responderId || !victimId) {
-    console.warn("[grant] missing responderId/victimId; skipping", detail);
-    return;
-  }
 
-  const now = Math.floor(Date.now() / 1000);
-  await ddb.send(
-    new PutCommand({
-      TableName: TABLE,
-      Item: {
-        session_id: `${responderId}#${victimId}`,
-        responder_id: responderId,
-        victim_id: victimId,
-        method: detail.method ?? null,
-        granted_at: new Date().toISOString(),
-        expires_at: now + SESSION_TTL_SECONDS,
-      },
-    })
+  console.log(
+    `[grant] no-op: access sessions moved to Postgres and are granted by the scan path ` +
+      `(responder=${responderId ?? "?"} victim=${victimId ?? "?"})`
   );
-
-  console.log(`[grant] session for responder ${responderId} → victim ${victimId}`);
 };

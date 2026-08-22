@@ -75,7 +75,6 @@ resource "aws_iam_policy" "ai_worker_permissions" {
         ]
         Resource = [
           var.scan_jobs_table_arn,
-          var.sessions_table_arn
         ]
       },
       {
@@ -135,7 +134,6 @@ resource "aws_ecs_task_definition" "ai" {
       { name = "AWS_REGION", value = "ap-southeast-1" },
       { name = "AI_JOBS_QUEUE_URL", value = var.queue_url },
       { name = "SCAN_JOBS_TABLE", value = var.scan_jobs_table_name },
-      { name = "ACCESS_SESSIONS_TABLE", value = var.sessions_table_name },
       { name = "AVATARS_BUCKET", value = var.avatars_bucket_name },
       { name = "DATABASE_URL", value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme" },
       { name = "EMERGENCY_BUS_NAME", value = var.emergency_bus_name }
@@ -192,14 +190,6 @@ variable "scan_jobs_table_name" {
   default = ""
 }
 variable "scan_jobs_table_arn" {
-  type    = string
-  default = ""
-}
-variable "sessions_table_name" {
-  type    = string
-  default = ""
-}
-variable "sessions_table_arn" {
   type    = string
   default = ""
 }

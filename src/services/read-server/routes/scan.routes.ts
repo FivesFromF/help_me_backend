@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { prisma } from "../../../shared/db";
+import { grantAccessSession } from "../services/session.service";
 import { verifyHashId } from "../../../shared/services/hash.service";
 import { extractFaceFeature } from "../../../shared/services/ai.service";
 import { publishEmergencyEvent } from "../../../shared/services/events.service";
@@ -16,7 +17,7 @@ scanRoutes.post(
     try {
       const { userId: responderId, role: responderRole } = req.auth!;
       const body = req.body || {};
-      const { method, tagId, hashId, imageBase64 } = body;
+      const { method, tagId, qrId, hashId, imageBase64 } = body;
 
       // 1. NFC Method
       if (method === "NFC") {
@@ -29,7 +30,10 @@ scanRoutes.post(
           where: { id: tagId },
         });
 
-        if (!tag || tag.status !== "ACTIVE") {
+        // `!tag.citizenId` là thẻ đã bị chủ cũ gỡ liên kết: bản ghi phần cứng vẫn còn để có thể
+        // cấp lại, nhưng nó không được định danh ai. Gộp chung một phản hồi với thẻ không tồn tại
+        // để người quét không suy ra được thẻ này từng thuộc về ai.
+        if (!tag || !tag.citizenId || tag.status !== "ACTIVE") {
           res.status(404).json({ error: "Tag not found or inactive" });
           return;
         }
@@ -48,13 +52,81 @@ scanRoutes.post(
           where: { citizenId: tag.citizenId },
         });
 
+        // Cấp quyền ngay tại đây thay vì để grant-permission-worker làm bất đồng bộ: worker đó là
+        // Lambda nằm ngoài VPC nên không với tới RDS, và phản hồi bên dưới vẫn luôn khẳng định
+        // `accessGranted: true` - trước đây là lời hứa suông cho tới khi worker kịp ghi.
+        await grantAccessSession(responderId, tag.citizenId, "NFC");
+
         await publishEmergencyEvent("victim.identified", {
           actorId: responderId,
           responderId,
           responderRole,
           targetId: tag.citizenId,
           method: "NFC",
+          // Sự kiện mang theo dữ liệu người tiêu thụ cần: notification-worker nhờ đó không phải
+          // truy vấn lại Postgres, nên không cần vào VPC và không cần NAT gateway.
+          victim: {
+            fullName: citizen?.fullName ?? null,
+            emergencyContacts: citizen?.emergencyContacts ?? null,
+          },
           metadata: { tagId },
+        });
+
+        res.status(200).json({
+          citizen,
+          record: record || null,
+          accessGranted: true,
+          expiresIn: 3600,
+        });
+        return;
+      }
+
+      // 2. QR Method - same proof as NFC, different carrier
+      if (method === "QR") {
+        if (!qrId || !hashId) {
+          res.status(400).json({ error: "Missing qrId or hashId" });
+          return;
+        }
+
+        const qr = await prisma.qrCode.findUnique({ where: { id: qrId } });
+
+        // A QR image is trivially copied, so status is the only lockout a citizen has once a card
+        // is lost. Refuse anything that is not ACTIVE, exactly as the NFC branch does.
+        if (!qr || qr.status !== "ACTIVE") {
+          res.status(404).json({ error: "QR code not found or inactive" });
+          return;
+        }
+
+        const systemSecret = process.env.SYSTEM_SECRET || "helpme-secret-key";
+        if (!verifyHashId(qr.citizenId, systemSecret, hashId)) {
+          res.status(403).json({ error: "Invalid hash signature" });
+          return;
+        }
+
+        const citizen = await prisma.citizen.findUnique({ where: { id: qr.citizenId } });
+        const record = await prisma.medicalRecord.findUnique({
+          where: { citizenId: qr.citizenId },
+        });
+
+        // Best-effort: a scan that identified someone must not fail because we could not stamp the
+        // code. Ghi nhận lần dùng cuối để chủ thẻ thấy thẻ của mình vừa bị quét.
+        await prisma.qrCode
+          .update({ where: { id: qrId }, data: { lastUsedAt: new Date() } })
+          .catch(() => undefined);
+
+        await grantAccessSession(responderId, qr.citizenId, "QR");
+
+        await publishEmergencyEvent("victim.identified", {
+          actorId: responderId,
+          responderId,
+          responderRole,
+          targetId: qr.citizenId,
+          method: "QR",
+          victim: {
+            fullName: citizen?.fullName ?? null,
+            emergencyContacts: citizen?.emergencyContacts ?? null,
+          },
+          metadata: { qrId },
         });
 
         res.status(200).json({
@@ -102,6 +174,10 @@ scanRoutes.post(
             responderRole,
             targetId: victim.id,
             method: "FACE",
+            victim: {
+              fullName: victim.fullName ?? null,
+              emergencyContacts: victim.emergencyContacts ?? null,
+            },
             metadata: { distance: victim.distance, totalCandidates: matches.length },
           });
 

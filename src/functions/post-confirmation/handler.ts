@@ -5,7 +5,6 @@ import {
   AdminAddUserToGroupCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
-import { db } from "../../shared/db";
 
 const cognitoClient = new CognitoIdentityProviderClient({});
 const ebClient = new EventBridgeClient({});
@@ -61,34 +60,31 @@ export const main = async (event: PostConfirmationTriggerEvent) => {
     }
 
     // Insert user into PostgreSQL database if not exists
-    const existing = await db.citizen.findUnique({
-      where: { cognitoId: username },
-    });
-
-    if (!existing) {
-      await db.citizen.create({
-        data: {
-          cognitoId: username,
-          email: email,
-          fullName: event.request.userAttributes.name || "",
-          isProfileUpdated: false,
-          isVerified: false,
-        },
-      });
-      console.log(`Inserted user ${username} into DB`);
-    }
+    // KHÔNG ghi vào Postgres ở đây nữa. Trigger này chạy đúng một lần, không retry, và trước đây
+    // nuốt lỗi - hỏng một lần là người dùng có tài khoản Cognito nhưng không có hàng citizen, đăng
+    // nhập được mà mọi route đều 404. Nó cũng ghi `event.userName`, khác với `sub` mà API tra cứu
+    // (Google_1004... vs 49fa451c-...), nên hàng tạo ra cũng không bao giờ tìm thấy.
+    // `ensureCitizenProvisioned` trong shared/services/provision.service.ts nay tạo hàng đó từ
+    // chính claim `sub`, ngay ở request đã xác thực đầu tiên. Lambda này chỉ còn việc của Cognito.
+    // Bỏ luôn phụ thuộc RDS nghĩa là hàm không cần vào VPC, và do đó không cần NAT gateway.
 
     // Publish user.signed_up audit event to CORE_SYSTEM_BUS → audit-worker → DynamoDB
     await publishAuditEvent("user.signed_up", {
-      actorId: username,
+      // `sub` là khoá định danh duy nhất toàn hệ thống - cùng claim mà API tra cứu. `username`
+      // giữ lại để đối chiếu, vì với đăng nhập liên kết hai giá trị này khác nhau.
+      actorId: event.request.userAttributes.sub || username,
       metadata: {
         email,
+        username,
         trigger: event.triggerSource,
-        isNewRecord: !existing,
       },
     });
   } catch (err) {
-    console.error("[post-confirmation] Error in handler logic:", err);
+    // CỐ Ý không ném lỗi. Ném sẽ khiến Cognito từ chối xác nhận đăng ký - mà phần việc còn lại ở
+    // đây đều không nguy hiểm: hàng citizen nay do API tạo (provision.service.ts), còn thiếu nhóm
+    // `Citizens` cũng không đổi gì vì `extractRole` mặc định mọi thứ không phải admin thành citizen.
+    // Ném lỗi ở đây sẽ biến một hỏng hóc vô hại thành mất trắng đường đăng ký.
+    console.error("[post-confirmation] group assignment or audit failed (signup continues):", err);
   }
 
   return event;

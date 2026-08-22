@@ -1,5 +1,6 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { prisma } from "../../src/shared/db";
 import { createWriteApp, createReadApp, performRequest, recordTest, TestResult } from "./test_helper";
 import {
   clearEvents,
@@ -22,7 +23,6 @@ const SUITE = "Events";
 
 const ddbEndpoint =
   process.env.DYNAMODB_ENDPOINT || process.env.AWS_ENDPOINT_URL || "http://127.0.0.1:8001";
-const SESSIONS_TABLE = process.env.ACCESS_SESSIONS_TABLE || "helpme-access-sessions";
 const ddb = DynamoDBDocumentClient.from(
   new DynamoDBClient({
     endpoint: ddbEndpoint,
@@ -212,23 +212,17 @@ export async function runEventApiTests(
   // Needs a live access session, seeded the way grant-permission-worker would.
   {
     clearEvents();
-    const sessionId = `${responderId}#${citizenId}`;
+    // Sessions live in Postgres now, not DynamoDB - seed them the way the scan path does.
     let seeded = false;
     try {
-      await ddb.send(
-        new PutCommand({
-          TableName: SESSIONS_TABLE,
-          Item: {
-            session_id: sessionId,
-            responder_id: responderId,
-            victim_id: citizenId,
-            expires_at: Math.floor(Date.now() / 1000) + 3600,
-          },
-        })
-      );
+      await prisma.accessSession.upsert({
+        where: { responderId_victimId: { responderId, victimId: citizenId } },
+        create: { responderId, victimId: citizenId, expiresAt: new Date(Date.now() + 3600_000) },
+        update: { expiresAt: new Date(Date.now() + 3600_000) },
+      });
       seeded = true;
     } catch (err: any) {
-      console.log(`     ⚠️ Could not seed access session (${err.name}) — is DynamoDB on :8001 up?`);
+      console.log(`     ⚠️ Could not seed access session (${err.name}) — is Postgres up?`);
     }
 
     const res = await performRequest(
@@ -250,9 +244,9 @@ export async function runEventApiTests(
     );
 
     if (seeded) {
-      await ddb.send(
-        new DeleteCommand({ TableName: SESSIONS_TABLE, Key: { session_id: sessionId } })
-      );
+      await prisma.accessSession
+        .delete({ where: { responderId_victimId: { responderId, victimId: citizenId } } })
+        .catch(() => undefined);
     }
   }
 }

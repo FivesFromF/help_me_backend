@@ -23,7 +23,6 @@ S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL") or os.getenv("AWS_ENDPOINT_URL") 
 
 QUEUE_URL = os.getenv("AI_JOBS_QUEUE_URL", "http://localhost:9324/queue/helpme-ai-jobs-queue")
 SCAN_JOBS_TABLE = os.getenv("SCAN_JOBS_TABLE", "helpme-scan-jobs")
-ACCESS_SESSIONS_TABLE = os.getenv("ACCESS_SESSIONS_TABLE", "helpme-access-sessions")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/helpme")
 EMERGENCY_BUS_NAME = os.getenv("EMERGENCY_BUS_NAME", "helpme-emergency-bus")
 
@@ -95,21 +94,35 @@ def update_job_status(job_id: str, status: str, result: Optional[Dict[str, Any]]
 
 
 def grant_access_session(responder_id: str, victim_id: str):
+    """
+    Cấp quyền truy cập 1 giờ, nay ghi vào bảng Postgres `access_sessions` thay vì DynamoDB.
+
+    ON CONFLICT trên cặp (responder, victim) tái hiện đúng khoá ghép `responderId#victimId` của
+    bảng cũ: quét lại cùng một người thì gia hạn phiên, không sinh thêm hàng.
+    """
+    conn = get_db_connection()
+    if not conn:
+        logger.error("Failed to create access session: no database connection")
+        return
+
     try:
-        table = dynamodb_resource.Table(ACCESS_SESSIONS_TABLE)
-        now = int(time.time())
-        table.put_item(
-            Item={
-                "session_id": f"{responder_id}#{victim_id}",
-                "responder_id": responder_id,
-                "victim_id": victim_id,
-                "method": "FACE",
-                "granted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "expires_at": now + 3600, # 1 hour
-            }
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO access_sessions (responder_id, victim_id, method, granted_at, expires_at)
+                VALUES (%s, %s::uuid, 'FACE', NOW(), NOW() + INTERVAL '1 hour')
+                ON CONFLICT (responder_id, victim_id)
+                DO UPDATE SET expires_at = EXCLUDED.expires_at,
+                              granted_at = EXCLUDED.granted_at,
+                              method     = EXCLUDED.method
+                """,
+                (responder_id, victim_id),
+            )
+        conn.commit()
     except Exception as e:
-        logger.error(f"Failed to create access session in DynamoDB: {e}")
+        logger.error(f"Failed to create access session in Postgres: {e}")
+    finally:
+        conn.close()
 
 
 def publish_emergency_event(detail_type: str, detail: Dict[str, Any]):
@@ -261,6 +274,12 @@ def process_s3_image(processor: FaceProcessor, bucket: str, key: str):
                             "responderId": responder_id,
                             "targetId": primary_victim_id,
                             "method": "FACE",
+                            # Sự kiện mang theo dữ liệu mà notification-worker cần, để worker đó
+                            # không phải truy vấn Postgres (và do đó không cần vào VPC/NAT).
+                            "victim": {
+                                "fullName": primary["victim"].get("fullName"),
+                                "emergencyContacts": primary["victim"].get("emergencyContacts"),
+                            },
                             "metadata": {
                                 "distance": primary_distance,
                                 "jobId": job_id,

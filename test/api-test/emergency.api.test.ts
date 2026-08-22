@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { prisma } from "../../src/shared/db";
 import { createWriteApp, createReadApp, performRequest, recordTest, TestResult } from "./test_helper";
 
 // Access sessions live in DynamoDB, so the victim-access cases must seed the table the
@@ -8,7 +9,6 @@ import { createWriteApp, createReadApp, performRequest, recordTest, TestResult }
 // on error, which makes V-01 pass for the wrong reason — V-02/V-03 are what prove it works.
 const ddbEndpoint =
   process.env.DYNAMODB_ENDPOINT || process.env.AWS_ENDPOINT_URL || "http://127.0.0.1:8001";
-const SESSIONS_TABLE = process.env.ACCESS_SESSIONS_TABLE || "helpme-access-sessions";
 const ddb = DynamoDBDocumentClient.from(
   new DynamoDBClient({
     endpoint: ddbEndpoint,
@@ -19,27 +19,22 @@ const ddb = DynamoDBDocumentClient.from(
 
 const sessionKey = (responderId: string, victimId: string) => `${responderId}#${victimId}`;
 
+// Access sessions live in Postgres (`access_sessions`) since 2026-08-22, not DynamoDB. The epoch
+// seconds argument is kept so the existing call sites - which deliberately seed an already-expired
+// session - still read naturally.
 async function putSession(responderId: string, victimId: string, expiresAtEpochSec: number) {
-  await ddb.send(
-    new PutCommand({
-      TableName: SESSIONS_TABLE,
-      Item: {
-        session_id: sessionKey(responderId, victimId),
-        responder_id: responderId,
-        victim_id: victimId,
-        expires_at: expiresAtEpochSec,
-      },
-    })
-  );
+  const expiresAt = new Date(expiresAtEpochSec * 1000);
+  await prisma.accessSession.upsert({
+    where: { responderId_victimId: { responderId, victimId } },
+    create: { responderId, victimId, expiresAt },
+    update: { expiresAt },
+  });
 }
 
 async function dropSession(responderId: string, victimId: string) {
-  await ddb.send(
-    new DeleteCommand({
-      TableName: SESSIONS_TABLE,
-      Key: { session_id: sessionKey(responderId, victimId) },
-    })
-  );
+  await prisma.accessSession
+    .delete({ where: { responderId_victimId: { responderId, victimId } } })
+    .catch(() => undefined);
 }
 
 export async function runEmergencyApiTests(

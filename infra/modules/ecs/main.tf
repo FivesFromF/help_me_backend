@@ -105,14 +105,6 @@ resource "aws_iam_policy" "ecs_cloud_access" {
       },
       {
         Action = [
-          "dynamodb:GetItem",
-          "dynamodb:Query"
-        ]
-        Effect   = "Allow"
-        Resource = var.sessions_table_arn
-      },
-      {
-        Action = [
           "cognito-idp:AdminGetUser",
           "cognito-idp:AdminCreateUser",
           "cognito-idp:AdminLinkProviderForUser",
@@ -232,7 +224,6 @@ resource "aws_ecs_task_definition" "write" {
       }
     }
     environment = [
-      { name = "ACCESS_SESSIONS_TABLE", value = var.sessions_table_name },
       { name = "CORE_SYSTEM_BUS_NAME", value = var.system_bus_name },
       { name = "DATABASE_URL", value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme" },
       { name = "EMERGENCY_BUS_NAME", value = var.emergency_bus_name },
@@ -279,7 +270,6 @@ resource "aws_ecs_task_definition" "read" {
       # both use 8080 - without this the container listens on 8081, every health check to 8080
       # fails, and the ALB answers 502. The write server needs no such line: its default IS 8080.
       { name = "PORT", value = "8080" },
-      { name = "ACCESS_SESSIONS_TABLE", value = var.sessions_table_name },
       { name = "CORE_SYSTEM_BUS_NAME", value = var.system_bus_name },
       { name = "DATABASE_URL", value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme" },
       { name = "EMERGENCY_BUS_NAME", value = var.emergency_bus_name },
@@ -365,8 +355,6 @@ variable "emergency_bus_name" {}
 variable "emergency_bus_arn" {}
 variable "read_container_image" {}
 variable "write_container_image" {}
-variable "sessions_table_name" {}
-variable "sessions_table_arn" {}
 variable "db_cluster_endpoint" {}
 variable "db_password" {}
 variable "system_secret" {}

@@ -1,38 +1,124 @@
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { prisma } from "../../../shared/db";
 
-const endpoint = process.env.DYNAMODB_ENDPOINT || process.env.AWS_ENDPOINT_URL || process.env.LOCALSTACK_URL;
-const ddb = DynamoDBDocumentClient.from(
-  new DynamoDBClient({
-    endpoint: endpoint || undefined,
-    region: process.env.AWS_REGION || "ap-southeast-1",
-    credentials: endpoint ? { accessKeyId: "test", secretAccessKey: "test" } : undefined,
-  })
-);
-const TABLE = process.env.ACCESS_SESSIONS_TABLE || "helpme-access-sessions";
+/**
+ * The 1-hour emergency access grant, stored in Postgres (`access_sessions`).
+ *
+ * Moved off DynamoDB on 2026-08-22. Every reader and writer already held a Postgres connection, and
+ * the one component that did not - `grant-permission-worker`, a Lambda outside the VPC - could not
+ * reach RDS at all. Granting therefore moved into the scan route, which runs in the VPC and is the
+ * moment identification actually happens. That also closed a race: the scan response has always
+ * claimed `accessGranted: true` while the row was written asynchronously afterwards, so a responder
+ * could be told they had access a moment before they did.
+ *
+ * DynamoDB's TTL swept expired rows away; here they are RETAINED and flipped to `EXPIRED` instead.
+ * These rows are the access history that `emergency_reports.access_session_id` points at, and the
+ * record of who opened whose medical file - deleting them would destroy the audit trail rather than
+ * tidy it.
+ */
 
+export const SESSION_TTL_SECONDS = 3600;
+
+export const SESSION_ACTIVE = "ACTIVE";
+export const SESSION_EXPIRED = "EXPIRED";
+
+/**
+ * Flips every elapsed grant to EXPIRED. Cheap and idempotent - one indexed UPDATE touching only
+ * rows that are still marked ACTIVE past their expiry.
+ *
+ * Called from the write and admin-read paths rather than on a timer, so no scheduler is required.
+ * Correctness never depends on it having run: `hasActiveSession` checks the clock as well as the
+ * status, so a row that is due to expire but not yet swept still grants nothing.
+ */
+export async function expireElapsedSessions(): Promise<number> {
+  try {
+    const { count } = await prisma.accessSession.updateMany({
+      where: { status: SESSION_ACTIVE, expiresAt: { lte: new Date() } },
+      data: { status: SESSION_EXPIRED },
+    });
+    if (count > 0) console.log(`[session] marked ${count} session(s) EXPIRED`);
+    return count;
+  } catch (err) {
+    console.error("[session] expiry sweep failed:", err);
+    return 0;
+  }
+}
+
+/** Kept for callers and tests that still describe a session by its old composite key. */
 export const sessionId = (responderId: string, victimId: string) => `${responderId}#${victimId}`;
 
 export async function hasActiveSession(responderId: string, victimId: string): Promise<boolean> {
-  if (!TABLE) {
-    console.error("[session] ACCESS_SESSIONS_TABLE not set; denying access");
-    return false;
-  }
+  if (!responderId || !victimId) return false;
 
   try {
-    const { Item } = await ddb.send(
-      new GetCommand({
-        TableName: TABLE,
-        Key: { session_id: sessionId(responderId, victimId) },
-      })
-    );
-
-    if (!Item) return false;
-
-    const now = Math.floor(Date.now() / 1000);
-    return typeof Item.expires_at === "number" && Item.expires_at > now;
+    const session = await prisma.accessSession.findFirst({
+      where: {
+        responderId,
+        victimId,
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true },
+    });
+    return !!session;
   } catch (err) {
+    // Fail closed, exactly as the DynamoDB implementation did: if we cannot prove a grant exists,
+    // there is no grant. A database blip must never open a medical record.
     console.error("[session] lookup failed; denying access:", err);
     return false;
   }
+}
+
+/**
+ * Grants or extends a responder's access to one victim.
+ *
+ * Upsert on the (responder, victim) pair reproduces the old composite key: scanning the same person
+ * again slides the window forward instead of accumulating rows.
+ */
+export async function grantAccessSession(
+  responderId: string,
+  victimId: string,
+  method?: string
+): Promise<Date | null> {
+  if (!responderId || !victimId) return null;
+
+  const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000);
+
+  try {
+    await prisma.accessSession.upsert({
+      where: { responderId_victimId: { responderId, victimId } },
+      create: { responderId, victimId, method, expiresAt, status: SESSION_ACTIVE },
+      // Quét lại người cũ thì gia hạn và bật lại ACTIVE, kể cả khi phiên trước đã EXPIRED.
+      update: { method, expiresAt, grantedAt: new Date(), status: SESSION_ACTIVE },
+    });
+
+    // Nhân tiện dọn các phiên đã hết hạn - không cần scheduler riêng.
+    void expireElapsedSessions();
+
+    return expiresAt;
+  } catch (err) {
+    // Deliberately swallowed: the responder still gets the medical record in this response, and
+    // failing the whole emergency lookup over a session row would be the wrong trade. It does mean
+    // re-access via /api/victim/:id will be denied, so the error is logged loudly.
+    console.error(`[session] failed to grant ${responderId} -> ${victimId}:`, err);
+    return null;
+  }
+}
+
+/** Live grants, soonest expiry first. Used by the admin session monitor. */
+export async function listActiveSessions(limit = 200) {
+  await expireElapsedSessions();
+  return prisma.accessSession.findMany({
+    where: { status: SESSION_ACTIVE, expiresAt: { gt: new Date() } },
+    orderBy: { expiresAt: "asc" },
+    take: limit,
+  });
+}
+
+/** Access history for one victim - who opened their record and when, expired grants included. */
+export async function listSessionHistory(victimId: string, limit = 100) {
+  await expireElapsedSessions();
+  return prisma.accessSession.findMany({
+    where: { victimId },
+    orderBy: { grantedAt: "desc" },
+    take: limit,
+  });
 }

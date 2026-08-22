@@ -165,15 +165,25 @@ reproduction and now passes. Discovered 2026-08-20, fixed 2026-08-22.
 CR-04 is the easy one to get wrong: a missing *record* is **200 with an empty object**, not 404.
 Only a missing *citizen* is 404.
 
-## 5. NFC
+## 5. NFC & QR Emergency Credentials
 
 | ID | Method | Path | Body / condition | Expect |
 | :-- | :-- | :-- | :-- | :-- |
-| N-01 | POST | `/api/nfc` | `{ tagId, name }` as citizen | **200** `{ tagId, hashId }` |
+| N-01 | POST | `/api/nfc` | `{ tagId, name }` as citizen | **200** `{ tagId, hashIdToBurn }` |
 | N-02 | POST | `/api/nfc` | body without `tagId` | **400** `Missing tagId (serial number)` |
 | N-03 | POST | `/api/nfc` | admin without `citizenId` | **400** `Missing citizenId` |
-| N-04 | POST | `/api/nfc` | admin, `citizenId` not in DB | **500** — see note E (should be 404) |
+| N-04 | POST | `/api/nfc` | admin, `citizenId` not in DB | **500** — see note E (FK check) |
 | N-05 | POST | `/api/nfc` | already-registered `tagId` | **200**, re-registers rather than duplicating |
+| N-06 | PATCH | `/api/v1/write/nfc/:tagId/status` | `{ status: "INACTIVE" }` | **200** `{ tagId, status: "INACTIVE" }` (lockout) |
+| N-07 | PATCH | `/api/v1/write/nfc/:tagId/status` | `{ status: "INVALID" }` | **400** `status must be one of ACTIVE, INACTIVE, LOST, STOLEN` |
+| N-08 | PATCH | `/api/v1/write/nfc/:tagId/status` | `{ status: "ACTIVE" }` | **200** `{ tagId, status: "ACTIVE" }` (reactivate) |
+| N-09 | DELETE | `/api/v1/write/nfc/:tagId` | citizen unlinks tag | **200** `{ unlinked: true, status: "INACTIVE" }` |
+| QR-01 | POST | `/api/v1/write/qr` | `{ name: "My QR" }` | **201** `{ qrId, hashId, payload }` |
+| QR-02 | GET | `/api/v1/read/citizen/credentials` | citizen lists own credentials | **200** `{ nfcTags, qrCodes, hashId }` |
+| QR-03 | PATCH | `/api/v1/write/qr/:qrId/status` | `{ status: "LOST" }` | **200** `{ qrId, status: "LOST" }` (lockout) |
+| QR-04 | POST | `/api/scan` | QR scan when status is LOST | **404** `QR code not found or inactive` |
+| QR-05 | PATCH | `/api/v1/write/qr/:qrId/status` | `{ status: "ACTIVE" }` | **200** `{ qrId, status: "ACTIVE" }` (reactivate) |
+| QR-06 | DELETE | `/api/v1/write/qr/:qrId` | citizen deletes QR | **200** `{ qrId, deleted: true }` |
 
 **Note E — an admin-supplied `citizenId` is never validated.** The `Citizen profile not found`
 404 lives inside the `role === "citizen"` branch only (`src/services/write-server/routes/nfc.routes.ts`).
@@ -182,17 +192,19 @@ When an admin posts a `citizenId` that does not exist, the handler goes straight
 `PrismaClientKnownRequestError`. N-04 documents the behaviour as it is; a 404 would be correct.
 Verified 2026-08-20.
 
-## 6. Scan
+## 6. Scan (NFC, QR & Face)
 
 | ID | Method | Path | Body / condition | Expect |
 | :-- | :-- | :-- | :-- | :-- |
 | S-01 | POST | `/api/scan` | `{ method: "NFC", tagId, hashId }`, valid HMAC | **200** victim + medical record |
-| S-02 | POST | `/api/scan` | tampered `hashId` | **403** `Invalid hash signature` |
-| S-03 | POST | `/api/scan` | NFC without `tagId` / `hashId` | **400** |
-| S-04 | POST | `/api/scan` | unknown or inactive tag | **404** `Tag not found or inactive` |
-| S-05 | POST | `/api/scan` | `{ method: "FACE" }` without `imageBase64` | **400** |
-| S-06 | POST | `/api/scan` | `{ method: "QR" }` | **400** `Unsupported scan method` |
-| S-07 | GET | `/api/scan/jobs/:jobId` | unknown job id | **404** `Job not found` |
+| S-02 | POST | `/api/scan` | tampered NFC `hashId` | **403** `Invalid hash signature` |
+| S-03 | POST | `/api/scan` | `{ method: "QR", qrId, hashId }`, valid HMAC | **200** victim + medical record |
+| S-04 | POST | `/api/scan` | tampered QR `hashId` | **403** `Invalid hash signature` |
+| S-05 | POST | `/api/scan` | QR scan missing `qrId` / `hashId` | **400** `Missing qrId or hashId` |
+| S-06 | POST | `/api/scan` | unknown or inactive NFC tag | **404** `Tag not found or inactive` |
+| S-07 | POST | `/api/scan` | `{ method: "FACE" }` without `imageBase64` | **400** |
+| S-08 | POST | `/api/scan` | `{ method: "BLUETOOTH" }` | **400** `Unsupported scan method` |
+| S-09 | GET | `/api/scan/jobs/:jobId` | unknown job id | **404** `Job not found` |
 
 ## 7. Victim access
 

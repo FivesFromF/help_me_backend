@@ -67,8 +67,8 @@ model NfcTag {
   id           String    @id
   name         String?
   status       String    @default("INACTIVE")
-  citizenId    String    @map("citizen_id") @db.Uuid
-  citizen      Citizen   @relation(fields: [citizenId], references: [id], onDelete: Cascade)
+  citizenId    String?   @map("citizen_id") @db.Uuid
+  citizen      Citizen?  @relation(fields: [citizenId], references: [id], onDelete: Cascade)
   registeredAt DateTime? @default(now()) @map("registered_at") @db.Timestamptz
   lastUsedAt   DateTime? @map("last_used_at") @db.Timestamptz
 
@@ -87,11 +87,33 @@ model QrCode {
   @@map("qr_codes")
 }
 
+model AccessSession {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  responderId String   @map("responder_id")
+  victimId    String   @map("victim_id") @db.Uuid
+  method      String?
+  grantedAt   DateTime @default(now()) @map("granted_at") @db.Timestamptz
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz
+
+  /// ACTIVE | EXPIRED. Hàng hết hạn được ĐỔI TRẠNG THÁI chứ không xoá: chính những hàng này là
+  /// lịch sử truy cập mà `emergency_reports.access_session_id` trỏ tới, và là bằng chứng ai đã mở
+  /// hồ sơ y tế của ai - xoá đi là mất dấu vết kiểm toán.
+  status      String   @default("ACTIVE")
+  reports     EmergencyReport[]
+
+  @@unique([responderId, victimId])
+  @@index([expiresAt])
+  @@index([status])
+  @@map("access_sessions")
+}
+
 model EmergencyReport {
   id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   reporterId           String?   @map("reporter_id")
   victimId             String?   @map("victim_id") @db.Uuid
   victim               Citizen?  @relation(fields: [victimId], references: [id])
+  accessSessionId      String?        @map("access_session_id") @db.Uuid
+  accessSession        AccessSession? @relation(fields: [accessSessionId], references: [id], onDelete: SetNull)
   locationLat          String    @map("location_lat")
   locationLon          String    @map("location_lon")
   situationDescription String?   @map("situation_description")

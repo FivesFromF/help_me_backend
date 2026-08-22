@@ -1,5 +1,4 @@
 import nodemailer from "nodemailer";
-import { db } from "../../shared/db";
 
 const SMTP_HOST = process.env.SMTP_HOST;
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || "587", 10);
@@ -10,18 +9,17 @@ const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
 export const main = async (event: any) => {
   const detail = event.detail ?? {};
   const victimId = detail.targetId ?? detail.victimId;
-  const isUuid = typeof victimId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(victimId);
 
-  let victim: any = null;
-  try {
-    if (isUuid) {
-      victim = await db.citizen.findUnique({ where: { id: victimId } });
-    }
-    if (!victim) {
-      victim = await db.citizen.findUnique({ where: { cognitoId: victimId } });
-    }
-  } catch (err: any) {
-    console.warn(`[notify] DB query error for '${victimId}':`, err?.message || err);
+  // Đọc thẳng từ sự kiện thay vì truy vấn Postgres. Publisher (scan.routes.ts và worker.py) đã có
+  // sẵn hàng citizen trong tay khi phát sự kiện, nên nó đính kèm luôn. Nhờ vậy Lambda này không
+  // cần DATABASE_URL, không cần vào VPC, và không cần NAT gateway để vừa gọi được SMTP vừa gọi RDS.
+  // Sự kiện cũng trở thành bản ghi tự chứa về một thời điểm, thay vì con trỏ phải tra cứu lại sau.
+  const victim: any = detail.victim ?? null;
+
+  if (!victim) {
+    console.warn(
+      `[notify] event for '${victimId}' carries no victim payload; publisher must include detail.victim`
+    );
   }
 
   if (!victim) {
