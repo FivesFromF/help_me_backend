@@ -50,6 +50,25 @@ npx serverless offline start
 > `0.0.0.0`; `host` is a different setting (where the plugin makes its own internal calls) and
 > binds nothing. Restart the stack for it to take effect.
 
+> ⚠️ **The local S3 credentials must be `S3RVER`/`S3RVER`, not `test`/`test`.**
+> `serverless-s3-local` wraps `s3rver`, which registers exactly one key pair at module load
+> (`lib/models/account.js`: `DUMMY_ACCOUNT.createKeyPair('S3RVER', 'S3RVER')`) and answers every
+> other key with `403 InvalidAccessKeyId` — at `lib/middleware/authentication.js:163`, *before* it
+> looks at the signature, so `allowMismatchedSignatures: true` does not help either.
+> Setting `custom.s3.accessKeyId` does **not** change this: `serverless-s3-local/index.js:273`
+> never passes those options to `new S3rver({...})` — they only feed the plugin's own internal
+> client at `index.js:362`. The clients had to change instead:
+> `s3.service.ts:17`, `docker-compose.yaml` (`ai-server`) and `test/ai-test/pipeline_probe.ts`
+> all sign with `S3RVER` now. Production is unaffected — it leaves the endpoint unset, so
+> credentials stay `undefined` and the AWS provider chain supplies the real role.
+
+> ⚠️ **`vhostBuckets` must be `false`, or containers get `NoSuchBucket`.**
+> `s3rver` defaults it to `true`, and its vhost middleware then treats any hostname that is not an
+> IP and not `localhost` as a bucket name (`lib/middleware/vhost.js:33-41`), rewriting the path to
+> `/<hostname>/<path>`. A worker calling `host.docker.internal:4569` therefore asks for bucket
+> `host.docker.internal` and gets `NoSuchBucket`, while the same request from the host over
+> `127.0.0.1` succeeds — an IP is exempt. `custom.s3.vhostBuckets: false` restores path-style.
+
 ### Pointing the app at the emulators
 
 Each emulator listens on its **own** port, so a single generic endpoint cannot serve all of them.
@@ -79,8 +98,6 @@ demonstrably exists. Either restart the shell, or override for one command:
 ```bash
 env -u ACCESS_SESSIONS_TABLE -u AWS_ENDPOINT_URL npm run test:api
 ```
-
-### Table names
 
 ### 🪣 One local bucket name: `helpme-avatars-local`
 
@@ -233,5 +250,38 @@ npm run test:ai
 python test/ai-test/process_images_to_json.py
 
 # 3. Match a query face photo and retrieve the Top 3 best matches + avatars:
-python test/ai-test/process_images_to_json.py --search "test/ai-test/test-images/input/good.png"
+python test/ai-test/process_images_to_json.py --search "test/ai-test/test-images/input/plain-avatar.jpg"
 ```
+
+> ⚠️ **Only `plain-avatar.jpg` passes the liveness gate.** Every large `.png` in
+> `test-images/input/` is a screen capture, and MiniFASNetV2 scores all of them FAKE
+> (`good.png` 0.75, `so-far.png` 0.93, `fake-face.png` 0.99) — a photo of a screen is exactly the
+> presentation attack it is trained to reject, so this is the model working, not a bug. The `good`
+> in `good.png` refers to framing, not liveness. `plain-avatar.jpg` is a real photograph and scores
+> REAL 1.00, which makes it the only usable happy-path fixture.
+
+---
+
+## 🔄 Step 6: Prove the whole async pipeline (`test:pipeline`)
+
+The API suite never touches S3, SQS or the worker, so it stays green while the entire asynchronous
+face path is dead. Two probes cover what it cannot:
+
+```bash
+npm run test:pipeline          # S3 -> SQS -> worker -> pgvector -> DynamoDB -> access session
+npx tsx test/ai-test/presign_check.ts   # the presigned PUT the Flutter app actually uses
+```
+
+`test:pipeline` enqueues an enrollment job and a scan job by hand and asserts all seven outcomes:
+the job reaches `COMPLETED`, the 512-d embedding lands in Postgres, `is_verified` flips, the scan
+reports `MATCH_FOUND` against the enrolled citizen, and the worker grants the 1-hour access session.
+It needs the **db**, **dynamodb**, **elasticmq** and **ai-server** compose services plus the
+`local-infra` stack for S3.
+
+`presign_check.ts` covers the leg `test:pipeline` bypasses: the write-server issues a presigned URL
+through `s3.service.ts` and the client `PUT`s straight to S3. Nothing else exercises it, and it was
+broken for the entire life of the local stack (see the `S3RVER` warning in Step 2).
+
+> There is **no S3 → SQS notification rule** in `local-infra`, so nothing enqueues a job when a file
+> is uploaded. Both probes post their own SQS message, which is why they work; a manual upload alone
+> will sit in the bucket untouched.

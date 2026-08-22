@@ -27,6 +27,27 @@
 
 ---
 
+## 🚫 The synchronous path is deprecated
+
+`POST /api/citizen/face` and `POST /api/scan { method: "FACE" }` do **not** reach this service.
+Both call `extractFaceFeature` in `shared/services/ai.service.ts`, which invokes an AWS Lambda named
+by **`AI_LAMBDA_NAME`** and, when that variable is unset, throws before reading the payload:
+
+```
+Synchronous face extraction endpoint is deprecated. Use async Presigned S3 upload + SQS AI Worker flow.
+```
+
+`AI_LAMBDA_NAME` is set nowhere in this repo — not `.env`, not `infra/**.tf`, not
+`docker-compose.yaml` — so both routes return **500** in every environment. Starting `main.py`
+changes nothing: it is an SQS consumer with no HTTP surface, and nothing on that path reaches it.
+`.env`'s `AI_SERVER_URL` and `AI_INTERNAL_SECRET` are read by no code in `src/` or `test/`.
+
+The behaviour is pinned by `F-01`–`F-04` in [[Services/API_Reference_and_Tests]]. Reviving the
+path means setting `AI_LAMBDA_NAME` and deploying that Lambda; face recognition otherwise runs
+only through the async queue above.
+
+---
+
 ## 🔬 2. AI Biometric Pipeline
 
 ```
@@ -47,6 +68,35 @@ Raw Image (OpenCV)
    ├─ Normalization: Resizes crop to 112x112, (img - 127.5) / 128.0
    └─ Output: 512-dimensional L2-normalized float vector
 ```
+
+### ⚠️ OpenCV must stay on 4.x
+
+Stage 2's detector is loaded with `cv2.dnn.readNetFromCaffe` from a vendored `.caffemodel`
+(`anti_spoofing/src/anti_spoof_predict.py:28`, `Widerface-RetinaFace.caffemodel`) — OpenCV's DNN
+module *is* the inference engine here, not just image plumbing. **OpenCV 5.0 removed the Caffe
+importer outright**: `readNetFromCaffe` no longer exists, and `readNet` refuses the same file with
+`Caffe importer has been removed. Please use ONNX-converted models or use an older OpenCV version.`
+
+`requirements.txt` originally said `opencv-python-headless>=4.8.0` with no upper bound, so the first
+image build after OpenCV 5.0's release silently jumped major versions and every job failed with
+`module 'cv2.dnn' has no attribute 'readNetFromCaffe'`. Both packages are now pinned `<5` —
+`opencv-contrib-python` too, because mediapipe pulls it in and does not bound it either.
+
+This is not local-only: `requirements.txt` builds the **production** image as well. The permanent
+fix is converting the detector weights to ONNX, which needs its own accuracy validation.
+
+### ⚠️ Nothing written to DynamoDB may be a Python `float`
+
+boto3's DynamoDB resource rejects floats outright (`Float types are not supported. Use Decimal
+types instead`) and raises at write time. Because a matched scan writes its distance into the job
+record, **every successful match used to die at the write**: the exception was logged, the job never
+left `PROCESSING`, and the client polled forever on a scan that had actually succeeded. The pgvector
+match was never at fault. This affected real AWS exactly as much as the emulator.
+
+`update_job_status()` now routes its `result` through `_to_dynamo_safe()`, which converts floats to
+`Decimal` at the boundary so no call site can reintroduce the bug. It unwraps numpy scalars first —
+pgvector distances arrive as `np.float64`, which is **not** a `float` subclass, so an
+`isinstance(x, float)` test alone misses them.
 
 ---
 
@@ -84,6 +134,15 @@ Still uncovered: the middle leg (real upload → `ObjectCreated` → SQS → `wo
 names now agree on `helpme-avatars-local` everywhere and the worker reaches SQS, S3, EventBridge,
 DynamoDB and Postgres from its container (see [[Runbooks/Local_Testing]]), but nothing locally turns
 an S3 `ObjectCreated` into an SQS message — `local-infra` declares the queue and no notification
-rule — so a job must be enqueued by hand. `test/ai-test/pipeline_probe.ts` does exactly that: it
-enrolls a face, scans it back and asserts the match, the granted session and the job result. Open
-gaps are tracked in [[Testing/Test_Report]].
+rule — so a job must be enqueued by hand. `npm run test:pipeline`
+(`test/ai-test/pipeline_probe.ts`) does exactly that: it enrolls a face, scans it back and asserts
+the match, the granted session and the job result. **It passes all seven checks as of 2026-08-22**,
+which is the first time this path has run end to end; getting there took the OpenCV pin and the
+`Decimal` fix above, plus three emulator corrections in [[Runbooks/Local_Testing]].
+
+`test/ai-test/presign_check.ts` covers the one leg the probe bypasses — the presigned `PUT` the
+Flutter app uses, which the probe sidesteps by writing to S3 with its own client.
+
+Any happy-path fixture must be `plain-avatar.jpg`: every large `.png` in `test-images/input/` is a
+screen capture and is correctly rejected by stage 2 (see that folder's `README.md`). Open gaps are
+tracked in [[Testing/Test_Report]].

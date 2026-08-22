@@ -30,14 +30,21 @@ CQRS: the two Express servers are the write/read pair, and everything asynchrono
 ## Commands
 
 ```bash
-# Local stack — Postgres 16 + pgvector on :5432, DynamoDB Local on :8001
-docker compose up -d db dynamodb dynamodb-init   # dynamodb-init creates the 3 tables, then exits (idempotent)
+# Local stack — Postgres 16 + pgvector :5432, DynamoDB Local :8001, ElasticMQ (real SQS) :9324
+docker compose up -d db dynamodb dynamodb-init elasticmq   # dynamodb-init creates the 3 tables, then exits (idempotent)
 npm run prisma:generate && npm run db:push && npm run db:seed
 
+# Host-side AWS emulators — S3 :4569, EventBridge :4010, offline Lambda HTTP :3000
+cd local-infra && npm start        # Serverless-offline; runs on the HOST, never deployed
+
 # Run the services (separate terminals)
-npm run dev:write     # :8080, watch mode
+npm run dev:write     # :8080, watch mode  (npm run start:write = same, no watch)
 npm run start:read    # :8081 — there is no dev:read
 cd src/services/ai-server && pip install -r requirements.txt && python main.py
+
+# Cloud ops (PowerShell, Windows) — see scripts/
+./scripts/cloud-start.ps1   # wake ECS services + RDS + bastion;  cloud-stop.ps1 puts them back to sleep
+./scripts/deploy.ps1 -Target all|write|read|ai|<lambda-name>   # build+push ECR images / Lambda zips to the deployed stack
 
 # Build
 npm run build         # prisma generate && tsc && node build.js  ← use this before `terraform apply`
@@ -47,13 +54,16 @@ npm run build:server  # tsc only: no Prisma client, no Lambda zips
 There is no linter and no test framework. `tsc` (`npm run build:server`) is the type check, and the suites are hand-rolled runners:
 
 ```bash
-npm run test:api                      # 59 in-process API checks; needs db + dynamodb (Step 1)
+npm run test:api                      # 63 in-process API checks; needs db + dynamodb (Step 1)
+npm run test:pipeline                 # 7 checks: S3 -> SQS -> worker -> pgvector -> DynamoDB session
 npm run test:notify -- you@example.com  # opt-in: sends ONE real email through the configured SMTP
 npm run test:ai                       # Python biometric pipeline over test/ai-test/test-images/input/
 python test/ai-test/process_images_to_json.py --search <image>   # top-3 match against the local JSON db
 ```
 
-`npm run test:api` is all-or-nothing — no filter flag. To run one group, call its exported `run*ApiTests` from a tsx script that imports `./event_capture` **first** (see below), or comment out the other groups in `test/api-test/index.ts`. Every run overwrites `docs/Testing/Test_Report.md`; `R-03` fails by design against a real consent defect (`test/api-test/README.md`, note F). The full expected-status catalogue lives in that README, and the runbook is [[Runbooks/Local_Testing]].
+`npm test` is aliased to `test:ai` (the Python image script), **not** the API suite — always name the suite you want.
+
+`npm run test:api` is all-or-nothing — no filter flag. To run one group, call its exported `run*ApiTests` from a tsx script that imports `./event_capture` **first** (see below), or comment out the other groups in `test/api-test/index.ts`. Every run overwrites `docs/Testing/Test_Report.md`; 62/63 pass and `R-03` (case 34, "partial edit must not silently grant consent") fails by design against a real defect — `consentRegulation: body.consentRegulation ?? true` in `citizen.routes.ts` (`test/api-test/README.md`, note F). The full expected-status catalogue lives in that README, and the runbook is [[Runbooks/Local_Testing]].
 
 ## Things that will waste your time if you don't know them
 
@@ -61,6 +71,9 @@ python test/ai-test/process_images_to_json.py --search <image>   # top-3 match a
 - **`.env` edits mid-session do nothing.** `dotenv.config()` never overwrites a var already in `process.env`, so a shell that inherited the old value keeps it for its whole life. Restart the shell, or override per command (`env -u VAR npm run test:api`).
 - **Module-level config binding.** `events.service.ts`, `s3.service.ts` and the workers read endpoints, table names and SMTP config into constants at *import* time. Any test sink must be wired before the module is imported — that is why `event_capture.ts` is the first import in `test/api-test/index.ts` and the SMTP group uses dynamic `await import()`.
 - **Header auth is not gated by `SKIP_AUTH`.** `authenticate` in `src/shared/middleware/auth.ts` trusts `x-cognito-id` / `x-role` whenever the header is present, and `extractRole` collapses everything that is not `admin` to `citizen` (so `staff` is a fail-open citizen). Docker containers do not get `SKIP_AUTH`, so expect `401` there where the in-process suite gets `404`.
+- **Local AWS emulation is split across two hosts.** Postgres, DynamoDB and the SQS queue (ElasticMQ) are Docker Compose services; S3, EventBridge and offline Lambda come from `local-infra` running on the *host*. That is why the composed `ai-server` points at `host.docker.internal:4010` / `:4569` but at `elasticmq:9324` by service name — a container that falls back to `localhost` error-loops forever. `serverless-offline-sqs` is a client-side plugin only: without ElasticMQ nothing listens on `:9324`.
+- **The API suite proves nothing about the async path.** `test:api` never touches S3, SQS or the worker, so it stays at 62/63 while the entire face pipeline is dead. `npm run test:pipeline` is what covers it; `test/ai-test/presign_check.ts` covers the presigned `PUT`. Local S3 also has two non-obvious rules — credentials must be `S3RVER`/`S3RVER` and `vhostBuckets` must be `false` — both explained in [[Runbooks/Local_Testing]].
+- **Only `plain-avatar.jpg` survives the liveness gate.** Every large `.png` in `test/ai-test/test-images/input/` is a screen capture and is scored FAKE by design, so a happy-path test built on `good.png` fails with `Spoofing detected` and looks like broken infrastructure.
 - **Terraform consumes checked-in zips.** `node build.js` writes them into `infra/modules/lambda/`; applying without rebuilding silently deploys old code.
 
 ## Conventions
