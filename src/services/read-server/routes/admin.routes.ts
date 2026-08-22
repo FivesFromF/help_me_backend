@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../../shared/db";
 import { requireRole } from "../../../shared/middleware/auth";
 import { publishSystemEvent } from "../../../shared/services/events.service";
+import { resolveAvatarUrl } from "../../../shared/services/s3.service";
 import { listActiveSessions } from "../services/session.service";
 
 /**
@@ -139,7 +140,14 @@ adminRoutes.get(
         metadata: { via: "admin.dashboard", role: "admin" },
       });
 
-      res.status(200).json({ citizen: { ...citizen, hasFaceEmbedding: !!face?.has } });
+      // avatar_url là S3 key trên bucket private — phải ký thì dashboard mới hiển thị được ảnh.
+      res.status(200).json({
+        citizen: {
+          ...citizen,
+          avatarUrl: await resolveAvatarUrl(citizen.avatarUrl),
+          hasFaceEmbedding: !!face?.has,
+        },
+      });
     } catch (err: any) {
       console.error("[admin] citizen detail failed:", err);
       res.status(500).json({ error: err.message || "Failed to load citizen" });

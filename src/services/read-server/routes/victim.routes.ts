@@ -3,6 +3,7 @@ import { prisma } from "../../../shared/db";
 import { hasActiveSession } from "../services/session.service";
 import { publishSystemEvent } from "../../../shared/services/events.service";
 import { requireRole } from "../../../shared/middleware/auth";
+import { resolveAvatarUrl } from "../../../shared/services/s3.service";
 
 export const victimRoutes = Router();
 
@@ -49,7 +50,10 @@ victimRoutes.get(
         method: "SESSION",
       });
 
-      res.status(200).json({ citizen, record });
+      res.status(200).json({
+        citizen: { ...citizen, avatarUrl: await resolveAvatarUrl(citizen.avatarUrl) },
+        record,
+      });
     } catch (err: any) {
       console.error("[victim.routes] Error re-accessing victim record:", err);
       res.status(500).json({ error: err.message || "Failed to retrieve victim record" });

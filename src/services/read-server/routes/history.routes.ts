@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { prisma } from "../../../shared/db";
 import { requireRole } from "../../../shared/middleware/auth";
 import { expireElapsedSessions, SESSION_ACTIVE } from "../services/session.service";
+import { resolveAvatarUrl } from "../../../shared/services/s3.service";
 
 /**
  * A citizen's activity history, in the three strands they care about:
@@ -101,7 +102,12 @@ historyRoutes.get(
         where: { id: { in: [...new Set(granted.map((s) => s.victimId))] } },
         select: { id: true, fullName: true, avatarUrl: true },
       });
-      const victims = new Map(victimRows.map((v) => [v.id, v]));
+      // avatar_url là S3 key trên bucket private; ký từng cái trước khi trả về, nếu không client
+      // nhận một chuỗi key và hiển thị ảnh hỏng.
+      const signedVictims = await Promise.all(
+        victimRows.map(async (v) => ({ ...v, avatarUrl: await resolveAvatarUrl(v.avatarUrl) }))
+      );
+      const victims = new Map(signedVictims.map((v) => [v.id, v]));
 
       const isLive = (s: { status: string; expiresAt: Date }) =>
         s.status === SESSION_ACTIVE && s.expiresAt.getTime() > now;

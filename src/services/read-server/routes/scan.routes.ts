@@ -6,8 +6,26 @@ import { extractFaceFeature } from "../../../shared/services/ai.service";
 import { publishEmergencyEvent } from "../../../shared/services/events.service";
 import { getScanJob } from "../../../shared/services/job.service";
 import { requireRole } from "../../../shared/middleware/auth";
+import { resolveAvatarUrl } from "../../../shared/services/s3.service";
 
 export const scanRoutes = Router();
+
+/**
+ * `avatar_url` chứa S3 key (bucket chặn public access), nên mọi đường trả về hồ sơ phải ký presigned
+ * GET trước khi gửi cho client - không ký thì responder chỉ nhận một chuỗi key và không thấy ảnh.
+ */
+async function signAvatar<T>(entity: T): Promise<T> {
+  if (!entity || typeof entity !== "object") return entity;
+  const e = entity as Record<string, any>;
+  if (!("avatarUrl" in e)) return entity;
+  return { ...e, avatarUrl: await resolveAvatarUrl(e.avatarUrl) } as T;
+}
+
+/** Ký avatar cho cả danh sách ứng viên. */
+async function signAvatars<T>(list: T[] | null | undefined): Promise<T[]> {
+  if (!Array.isArray(list)) return [];
+  return Promise.all(list.map((item) => signAvatar(item)));
+}
 
 // POST /api/scan — Responder Emergency Scan (NFC or Face)
 scanRoutes.post(
@@ -86,7 +104,7 @@ scanRoutes.post(
         });
 
         res.status(200).json({
-          citizen,
+          citizen: await signAvatar(citizen),
           record: record || null,
           accessGranted: true,
           expiresIn: SESSION_TTL_SECONDS,
@@ -152,7 +170,7 @@ scanRoutes.post(
         });
 
         res.status(200).json({
-          citizen,
+          citizen: await signAvatar(citizen),
           record: record || null,
           accessGranted: true,
           expiresIn: SESSION_TTL_SECONDS,
@@ -210,13 +228,15 @@ scanRoutes.post(
             metadata: { distance: victim.distance, totalCandidates: matches.length, ...scanLocation },
           });
 
+          const signedVictim = await signAvatar(victim);
+
           res.status(200).json({
             matchStatus: "MATCH_FOUND",
             matchesCount: matches.length,
-            victim,
-            citizen: victim,
+            victim: signedVictim,
+            citizen: signedVictim,
             record: record || null,
-            topMatches: matches,
+            topMatches: await signAvatars(matches),
             accessGranted: true,
             expiresIn: SESSION_TTL_SECONDS,
           });
@@ -256,6 +276,21 @@ scanRoutes.get(
       if (!job) {
         res.status(404).json({ error: "Job not found" });
         return;
+      }
+
+      // Kết quả quét khuôn mặt được worker ghi vào DynamoDB với `avatar_url` là S3 key thô. Đây là
+      // đường mà app thực sự đọc sau khi quét, nên phải ký ở đây - nếu không responder không thấy
+      // ảnh của nạn nhân, dù ảnh vẫn nằm nguyên trong bucket.
+      const result = job.result;
+      if (result && typeof result === "object") {
+        if (result.victim) result.victim = await signAvatar(result.victim);
+        if (Array.isArray(result.topMatches)) {
+          result.topMatches = await Promise.all(
+            result.topMatches.map(async (m: any) =>
+              m && typeof m === "object" && m.victim ? { ...m, victim: await signAvatar(m.victim) } : m
+            )
+          );
+        }
       }
 
       res.status(200).json({ job });
