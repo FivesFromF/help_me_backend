@@ -2,7 +2,7 @@
 
 > [!warning] Generated file — `npm run test:api` overwrites it on every run. Edit `test/api-test/README.md` instead; that is the catalogue of intended cases.
 
-**Run at:** 2026-08-22 10:08:06 UTC  
+**Run at:** 2026-08-22 12:14:09 UTC  
 **Result:** 75/75 passed (100%)
 
 ---
@@ -81,7 +81,7 @@ None — every check passed.
 | 30 | ✅ | NFC & Credentials API | POST | `/api/scan` | Return 404 for unknown or inactive NFC tag | 404 | 404 |
 | 31 | ✅ | NFC & Credentials API | POST | `/api/scan` | Reject FACE scan without imageBase64 | 400 | 400 |
 | 32 | ✅ | NFC & Credentials API | POST | `/api/scan` | Reject unsupported scan method (BLUETOOTH) | 400 | 400 |
-| 33 | ✅ | NFC & Credentials API | DELETE | `/api/v1/write/qr/:qrId` | Delete emergency QR code | 200 | 200 |
+| 33 | ✅ | NFC & Credentials API | DELETE | `/api/v1/write/qr/:qrId` | Unlink emergency QR code (row survives, owner cleared) | 200 | 200 |
 | 34 | ✅ | NFC & Credentials API | DELETE | `/api/v1/write/nfc/:tagId` | Unlink physical NFC tag (clears owner, sets INACTIVE) | 200 | 200 |
 | 35 | ✅ | Emergency API | POST | `/api/emergency/report` | File incident emergency report with GPS coordinates | 201 | 201 |
 | 36 | ✅ | Emergency API | POST | `/api/emergency/report` | Reject emergency report missing GPS coordinates | 400 | 400 |
@@ -107,7 +107,7 @@ None — every check passed.
 | 56 | ✅ | Events | POST | `/api/emergency/report` | Emergency report publishes → "emergency.reported" | 201 | 201 |
 | 57 | ✅ | Events | POST | `/api/scan` | Successful scan publishes → "victim.identified" | 200 | 200 |
 | 58 | ✅ | Events | GET | `/api/victim/:victimId` | Granted victim access publishes → "victim.record.accessed" | 200 | 200 |
-| 59 | ✅ | Workers | EVENT | `scan route (access_sessions)` | victim.identified grants a 1-hour access session | 1 | 1 |
+| 59 | ✅ | Workers | EVENT | `scan route (access_sessions)` | victim.identified grants a 12-hour access session | 1 | 1 |
 | 60 | ✅ | Workers | GET | `/api/victim/:victimId` | Session written by the worker unlocks the victim record | 200 | 200 |
 | 61 | ✅ | Workers | EVENT | `audit-worker` | System event is written to the audit trail | 1 | 1 |
 | 62 | ✅ | Workers | EVENT | `audit-worker` | Actorless event is audited under actor 'system' | 1 | 1 |
