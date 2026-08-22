@@ -1,6 +1,11 @@
 mediapipe>=0.10.14
 numpy>=1.26.0
-opencv-python-headless>=4.8.0
+# Must stay on 4.x: OpenCV 5.0 removed the Caffe importer ("Caffe importer has been removed",
+# dnn_read.cpp:23), and anti_spoofing/src/anti_spoof_predict.py:28 loads Widerface-RetinaFace.caffemodel
+# through cv2.dnn.readNetFromCaffe, which no longer exists. readNet cannot substitute for it.
+opencv-python-headless>=4.8.0,<5
+# mediapipe depends on opencv-contrib-python and does not bound it - same 5.x trap, so pin it here too.
+opencv-contrib-python>=4.8.0,<5
 torch>=2.0.0
 torchvision>=0.15.0
 timm>=1.0.0
