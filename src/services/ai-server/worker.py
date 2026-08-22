@@ -122,29 +122,12 @@ def update_job_status(job_id: str, status: str, result: Optional[Dict[str, Any]]
         logger.error(f"Failed to update job {job_id} in DynamoDB: {e}")
 
 
-def is_complained(responder_id: str, victim_id: str) -> bool:
-    """
-    Nạn nhân đã khiếu nại lần truy cập này chưa?
-
-    Khiếu nại là chung cuộc, và nhận diện khuôn mặt cũng là một đường truy cập - nếu không kiểm tra
-    ở đây thì người bị khiếu nại chỉ cần quét mặt là lại thấy bệnh án, dù NFC và QR đều đã bị chặn.
-    Lỗi truy vấn thì trả về False: không chặn được một ca cấp cứu chỉ vì cơ sở dữ liệu chớp nháy.
-    """
-    conn = get_db_connection()
-    if not conn:
-        return False
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT 1 FROM access_sessions WHERE responder_id = %s AND victim_id = %s::uuid AND status = 'COMPLAINED' LIMIT 1",
-                (responder_id, victim_id),
-            )
-            return cur.fetchone() is not None
-    except Exception as e:
-        logger.error(f"Failed to check complaint status: {e}")
-        return False
-    finally:
-        conn.close()
+# is_complained() bị bỏ ngày 2026-08-23. Nó chỉ kiểm được MỘT người và mở thêm một kết nối riêng,
+# nên khi phải kiểm cả 3 ứng viên thì vừa sai vừa tốn. Thay bằng một truy vấn theo lô ngay trong
+# nhánh tìm kiếm, dùng lại đúng cursor đang mở: xem `complained_ids` trong process_s3_image().
+#
+# Khiếu nại là chung cuộc, và nhận diện khuôn mặt cũng là một đường truy cập - không kiểm ở đây thì
+# người bị khiếu nại chỉ cần quét mặt là lại thấy bệnh án, dù NFC và QR đều đã bị chặn.
 
 
 def grant_access_session(
@@ -187,6 +170,28 @@ def grant_access_session(
         logger.error(f"Failed to create access session in Postgres: {e}")
     finally:
         conn.close()
+
+
+MASK_VISIBLE_TAIL = 4
+
+
+def mask_cccd(value: Any) -> Any:
+    """
+    `123456789885` -> `********9885`. Bản Python của `maskCccd` trong shared/services/mask.service.ts;
+    hai đường quét phải che giống hệt nhau, nếu không responder thấy số đầy đủ ở đường này và số đã
+    che ở đường kia.
+
+    Bốn số cuối đủ để đối chiếu với thẻ căn cước trong ví nạn nhân - đủ cho việc cứu người. Cả 12 số
+    thì mở được tài khoản ngân hàng và đăng ký SIM. Idempotent, và chuỗi <= 4 ký tự bị che hết.
+    """
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if raw == "":
+        return raw
+    if len(raw) <= MASK_VISIBLE_TAIL:
+        return "*" * len(raw)
+    return "*" * (len(raw) - MASK_VISIBLE_TAIL) + raw[-MASK_VISIBLE_TAIL:]
 
 
 def copy_avatar_object(bucket: str, source_key: str, citizen_uuid: str) -> Optional[str]:
@@ -376,10 +381,31 @@ def process_s3_image(processor: FaceProcessor, bucket: str, key: str):
                     scan_lat = job_item.get("scan_lat")
                     scan_lon = job_item.get("scan_lon")
 
+                    # Khiếu nại phải kiểm cho TỪNG ứng viên, không chỉ ứng viên đứng đầu. Mỗi ứng
+                    # viên trả về đều kèm bệnh án, nên chỉ kiểm người đầu tiên nghĩa là ai đã khiếu
+                    # nại responder này vẫn lộ hồ sơ khi lọt vào vị trí thứ 2 hoặc 3.
+                    # Một truy vấn cho cả nhóm, dùng lại đúng cursor này thay vì mở 3 kết nối mới.
+                    cur.execute(
+                        """
+                        SELECT victim_id FROM access_sessions
+                         WHERE responder_id = %s AND status = 'COMPLAINED'
+                           AND victim_id = ANY(%s::uuid[])
+                        """,
+                        (responder_id, [str(m["id"]) for m in matches]),
+                    )
+                    complained_ids = {str(r["victim_id"]) for r in cur.fetchall()}
+
                     top_candidates = []
                     for match in matches:
                         m_dist = float(match["distance"])
                         victim_id = match["id"]
+
+                        if str(victim_id) in complained_ids:
+                            logger.warning(
+                                f"Candidate {victim_id} suppressed for job {job_id}: "
+                                f"access was complained about"
+                            )
+                            continue
 
                         # Fetch medical record if available
                         cur.execute(
@@ -399,6 +425,10 @@ def process_s3_image(processor: FaceProcessor, bucket: str, key: str):
                         if "dateOfBirth" in match_data and match_data["dateOfBirth"]:
                             match_data["dateOfBirth"] = str(match_data["dateOfBirth"])
                         match_data["distance"] = str(m_dist)
+                        # Che CCCD ngay tại đây, trước khi ghi: kết quả job nằm trong DynamoDB 2 giờ
+                        # và responder đọc thẳng từ đó, nên che lúc trả về là quá muộn - số đầy đủ
+                        # đã được lưu ở một nơi thứ hai rồi.
+                        match_data["cccdNumber"] = mask_cccd(match_data.get("cccdNumber"))
 
                         top_candidates.append({
                             "victim": match_data,
@@ -406,15 +436,11 @@ def process_s3_image(processor: FaceProcessor, bucket: str, key: str):
                             "distance": m_dist,
                         })
 
-                    # Primary (best) match
-                    primary = top_candidates[0]
-                    primary_victim_id = primary["victim"]["id"]
-                    primary_distance = primary["distance"]
-
-                    # Khiếu nại chặn cả đường nhận diện khuôn mặt, không chỉ NFC/QR.
-                    if is_complained(responder_id, primary_victim_id):
+                    # Mọi ứng viên đều bị khiếu nại: không còn gì được phép trả về.
+                    if not top_candidates:
                         logger.warning(
-                            f"Match suppressed for job {job_id}: access to {primary_victim_id} was complained about"
+                            f"All {len(matches)} candidate(s) suppressed for job {job_id}: "
+                            f"access was complained about"
                         )
                         update_job_status(
                             job_id,
@@ -426,10 +452,25 @@ def process_s3_image(processor: FaceProcessor, bucket: str, key: str):
                         )
                         return
 
-                    # Grant 12-hour temporary session for primary match
-                    grant_access_session(responder_id, primary_victim_id, scan_lat, scan_lon)
+                    # Primary (best) match
+                    primary = top_candidates[0]
+                    primary_victim_id = primary["victim"]["id"]
+                    primary_distance = primary["distance"]
 
-                    # Emit victim.identified Event
+                    # Cấp phiên cho TẤT CẢ ứng viên được trả về, không chỉ người đầu tiên: bệnh án
+                    # của ai đã nằm trong phản hồi thì người đó phải thấy được lần truy cập ấy trong
+                    # lịch sử của mình và khiếu nại được. Trao dữ liệu mà không để lại dấu vết là
+                    # đúng thứ mà cơ chế khiếu nại sinh ra để chặn.
+                    for candidate in top_candidates:
+                        grant_access_session(
+                            responder_id, str(candidate["victim"]["id"]), scan_lat, scan_lon
+                        )
+
+                    # Sự kiện CHỈ bắn cho ứng viên đứng đầu, dù phiên đã cấp cho tất cả.
+                    # `victim.identified` kích hoạt notification-worker gửi cảnh báo cấp cứu cho
+                    # người thân; bắn cho cả ứng viên 2 và 3 nghĩa là báo động giả cho hai gia đình
+                    # không liên quan. Cấp quyền là chuyện trách nhiệm giải trình, báo động là chuyện
+                    # khác - và chỉ có một người thực sự đang nằm đó.
                     publish_emergency_event(
                         "victim.identified",
                         {
@@ -459,6 +500,8 @@ def process_s3_image(processor: FaceProcessor, bucket: str, key: str):
                         result={
                             "matchStatus": "MATCH_FOUND",
                             "matchesCount": len(top_candidates),
+                            # Bao nhiêu ứng viên bị loại vì khiếu nại - không nói là ai.
+                            "suppressedCount": len(matches) - len(top_candidates),
                             "distance": primary_distance,
                             "victim": primary["victim"],
                             "record": primary["record"],
