@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { prisma } from "../../../shared/db";
 import { hasActiveSession } from "../services/session.service";
+import { maskCitizenIdentifiers } from "../../../shared/services/mask.service";
 import { publishSystemEvent } from "../../../shared/services/events.service";
 import { requireRole } from "../../../shared/middleware/auth";
 import { resolveAvatarUrl } from "../../../shared/services/s3.service";
@@ -51,7 +52,12 @@ victimRoutes.get(
       });
 
       res.status(200).json({
-        citizen: { ...citizen, avatarUrl: await resolveAvatarUrl(citizen.avatarUrl) },
+        // CCCD chỉ hiện 4 số cuối: đủ để đối chiếu với thẻ trong ví nạn nhân, không đủ để dùng lại
+        // ở chỗ khác. Cứu người không cần cả 12 số.
+        citizen: {
+          ...maskCitizenIdentifiers(citizen),
+          avatarUrl: await resolveAvatarUrl(citizen.avatarUrl),
+        },
         record,
       });
     } catch (err: any) {

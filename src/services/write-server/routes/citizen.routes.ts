@@ -22,11 +22,21 @@ citizenRoutes.put(
 
       const email = body.email || req.auth?.email || `${userId}@helpme.local`;
 
+      // Đường đọc trả CCCD đã che (`********9885`). App tải hồ sơ về, đổ vào form, người dùng bấm
+      // lưu - và giá trị đã che quay lại đây. Ghi nó xuống là XOÁ số thật, không khôi phục được, và
+      // tệ hơn là `is_verified` vẫn bật vì chuỗi không rỗng. Coi giá trị chứa `*` như "không đổi".
+      const cccdIsMasked =
+        typeof body.cccdNumber === "string" && body.cccdNumber.includes("*");
+      if (cccdIsMasked) {
+        console.warn("[citizen.routes] ignoring masked cccdNumber from client; leaving column unchanged");
+      }
+      const incomingCccd = cccdIsMasked ? undefined : body.cccdNumber;
+
       // Khai báo CCCD được tính là đã xác minh danh tính. Kiểm tra chuỗi rỗng để `cccdNumber: ""`
       // hoặc `null` không vô tình bật cờ. Lưu ý `is_verified` cũng được worker AI bật sau khi đăng
-      // ký khuôn mặt (worker.py:188), nên cờ này nay mang hai ý nghĩa - chỉ bật, không bao giờ tắt.
+      // ký khuôn mặt, nên cờ này mang hai ý nghĩa - chỉ bật, không bao giờ tắt.
       const declaresCccd =
-        typeof body.cccdNumber === "string" && body.cccdNumber.trim() !== "";
+        typeof incomingCccd === "string" && incomingCccd.trim() !== "";
 
       const updated = await prisma.citizen.upsert({
         where: { cognitoId: userId },
@@ -36,7 +46,7 @@ citizenRoutes.put(
           fullName: body.fullName || "",
           phone: body.phone,
           address: body.address,
-          cccdNumber: body.cccdNumber,
+          cccdNumber: incomingCccd,
           dateOfBirth: body.dateOfBirth
             ? new Date(body.dateOfBirth)
             : undefined,
@@ -61,8 +71,7 @@ citizenRoutes.put(
           fullName: body.fullName !== undefined ? body.fullName : undefined,
           phone: body.phone !== undefined ? body.phone : undefined,
           address: body.address !== undefined ? body.address : undefined,
-          cccdNumber:
-            body.cccdNumber !== undefined ? body.cccdNumber : undefined,
+          cccdNumber: incomingCccd !== undefined ? incomingCccd : undefined,
           dateOfBirth: body.dateOfBirth
             ? new Date(body.dateOfBirth)
             : undefined,
@@ -109,6 +118,8 @@ citizenRoutes.put(
         });
       }
 
+      // Không che: đây là hồ sơ của chính người gọi, giống GET /api/citizen/profile.
+      // Guard `cccdIsMasked` ở trên vẫn giữ - nó chống một bản app cũ gửi lại giá trị đã che.
       res.status(200).json({ profile: updated });
     } catch (err: any) {
       // `citizens.email` là @unique - trùng địa chỉ là lỗi của người gọi, không phải lỗi máy chủ.

@@ -22,6 +22,11 @@ citizenRoutes.get(
       }
 
       // avatar_url lưu S3 key sau khi enroll khuôn mặt; ký presigned GET để client tải được.
+      //
+      // CCCD ở đây KHÔNG che. Che chỉ có nghĩa khi người xem không phải chủ dữ liệu - nó ngăn
+      // responder và admin thu thập số căn cước của người khác. Với chính chủ thì che không bảo vệ
+      // ai: họ biết số của mình, và họ có quyền đọc lại dữ liệu của chính mình. Mọi đường khác
+      // (quét, xem lại nạn nhân, dashboard admin, kết quả job) vẫn che.
       res.status(200).json({
         profile: { ...profile, avatarUrl: await resolveAvatarUrl(profile.avatarUrl) },
       });

@@ -7,6 +7,7 @@ import { publishEmergencyEvent } from "../../../shared/services/events.service";
 import { getScanJob } from "../../../shared/services/job.service";
 import { requireRole } from "../../../shared/middleware/auth";
 import { resolveAvatarUrl } from "../../../shared/services/s3.service";
+import { maskCitizenIdentifiers } from "../../../shared/services/mask.service";
 
 export const scanRoutes = Router();
 
@@ -16,8 +17,8 @@ export const scanRoutes = Router();
  */
 async function signAvatar<T>(entity: T): Promise<T> {
   if (!entity || typeof entity !== "object") return entity;
-  const e = entity as Record<string, any>;
-  if (!("avatarUrl" in e)) return entity;
+  const e = maskCitizenIdentifiers(entity) as Record<string, any>;
+  if (!("avatarUrl" in e)) return e as T;
   return { ...e, avatarUrl: await resolveAvatarUrl(e.avatarUrl) } as T;
 }
 

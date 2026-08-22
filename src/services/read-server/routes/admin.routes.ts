@@ -4,6 +4,7 @@ import { prisma } from "../../../shared/db";
 import { requireRole } from "../../../shared/middleware/auth";
 import { publishSystemEvent } from "../../../shared/services/events.service";
 import { resolveAvatarUrl } from "../../../shared/services/s3.service";
+import { maskCccd, maskCitizenIdentifiers } from "../../../shared/services/mask.service";
 import { listActiveSessions } from "../services/session.service";
 
 /**
@@ -92,7 +93,13 @@ adminRoutes.get(
         : [];
       const faceSet = new Set(withFace.map((r) => r.id));
 
-      let citizens = rows.map((r) => ({ ...r, hasFaceEmbedding: faceSet.has(r.id) }));
+      // CCCD chỉ hiện 4 số cuối. Bộ lọc `q` vẫn chạy trên giá trị đầy đủ trong CSDL, nên tìm kiếm
+      // theo số căn cước không bị ảnh hưởng - chỉ giá trị trả ra ngoài mới bị che.
+      let citizens = rows.map((r) => ({
+        ...r,
+        cccdNumber: maskCccd(r.cccdNumber),
+        hasFaceEmbedding: faceSet.has(r.id),
+      }));
       if (hasFace === "true" || hasFace === "false") {
         citizens = citizens.filter((c) => c.hasFaceEmbedding === (hasFace === "true"));
       }
@@ -143,7 +150,7 @@ adminRoutes.get(
       // avatar_url là S3 key trên bucket private — phải ký thì dashboard mới hiển thị được ảnh.
       res.status(200).json({
         citizen: {
-          ...citizen,
+          ...maskCitizenIdentifiers(citizen),
           avatarUrl: await resolveAvatarUrl(citizen.avatarUrl),
           hasFaceEmbedding: !!face?.has,
         },
