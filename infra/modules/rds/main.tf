@@ -60,6 +60,14 @@ resource "aws_db_instance" "main" {
   skip_final_snapshot = true
   apply_immediately   = true
 
+  # Multi-AZ with a single standby: RDS keeps a synchronous copy in a second availability zone and
+  # fails over to it automatically. The standby is NOT readable - it serves no queries. That is the
+  # difference from a read replica, and the reason both servers share one endpoint below.
+  multi_az = true
+
+  # Required for Multi-AZ, and the provider default here is 0 (disabled).
+  backup_retention_period = 7
+
   tags = {
     Project = "HelpMe"
   }

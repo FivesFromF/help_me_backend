@@ -275,6 +275,10 @@ resource "aws_ecs_task_definition" "read" {
       }
     }
     environment = [
+      # read-server/index.ts:13 defaults PORT to 8081, but portMappings and the ALB target group
+      # both use 8080 - without this the container listens on 8081, every health check to 8080
+      # fails, and the ALB answers 502. The write server needs no such line: its default IS 8080.
+      { name = "PORT", value = "8080" },
       { name = "ACCESS_SESSIONS_TABLE", value = var.sessions_table_name },
       { name = "CORE_SYSTEM_BUS_NAME", value = var.system_bus_name },
       { name = "DATABASE_URL", value = "postgres://adminuser:${var.db_password}@${var.db_cluster_endpoint}:5432/helpme" },
