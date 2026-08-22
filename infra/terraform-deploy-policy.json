@@ -1,0 +1,36 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InfraServicesRegionLocked",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:*", "elasticloadbalancing:*", "rds:*", "ecs:*", "ecr:*", "lambda:*",
+        "dynamodb:*", "s3:*", "sqs:*", "events:*", "cognito-idp:*", "cognito-identity:*",
+        "apigateway:*", "servicediscovery:*", "logs:*", "application-autoscaling:*",
+        "kms:Describe*", "kms:List*", "kms:CreateGrant", "tag:GetResources"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEqualsIfExists": { "aws:RequestedRegion": "ap-southeast-1" }
+      }
+    },
+    {
+      "Sid": "IamForTerraformGlobalNoRegionCondition",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:ListRoles",
+        "iam:TagRole", "iam:UntagRole", "iam:UpdateAssumeRolePolicy",
+        "iam:CreatePolicy", "iam:DeletePolicy", "iam:GetPolicy", "iam:ListPolicies",
+        "iam:GetPolicyVersion", "iam:ListPolicyVersions", "iam:CreatePolicyVersion", "iam:DeletePolicyVersion",
+        "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:ListAttachedRolePolicies",
+        "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:GetRolePolicy", "iam:ListRolePolicies",
+        "iam:CreateInstanceProfile", "iam:DeleteInstanceProfile", "iam:GetInstanceProfile",
+        "iam:AddRoleToInstanceProfile", "iam:RemoveRoleFromInstanceProfile", "iam:ListInstanceProfilesForRole",
+        "iam:PassRole", "iam:CreateServiceLinkedRole",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
