@@ -24,17 +24,6 @@ const REPORT_PATH = path.resolve(__dirname, "../../docs/Testing/Test_Report.md")
  */
 const PENDING: { what: string; why: string; note: string }[] = [
   {
-    what: "🔴 Header auth bypass (`x-cognito-id`)",
-    why:
-      "`auth.ts` defines SKIP_AUTH but never checks it on the header branch, so a forged " +
-      "`x-cognito-id` authenticates as that user with no token — confirmed against the running " +
-      "containers (no header → 401, forged header → 404, i.e. authenticated then not-found). " +
-      "`x-role` sets the role the same way.",
-    note:
-      "To be tested by the owner. Fixing it means the 59 checks here must run with SKIP_AUTH=true, " +
-      "since every one of them authenticates by header.",
-  },
-  {
     what: "🟠 `post-confirmation` worker (PC-01–PC-06)",
     why:
       "The only worker with no coverage, and the sole writer of the citizen skeleton row on Cognito " +
@@ -66,18 +55,18 @@ const PENDING: { what: string; why: string; note: string }[] = [
       "deploying that Lambda — at which point F-01–F-04 are the cases to rewrite.",
   },
   {
-    what: "The S3 → SQS → worker.py leg",
+    what: "The S3 → SQS → worker.py leg (covered elsewhere, not here)",
     why:
       "§11 covers both ends (job created, job polled) but not the middle: a real upload to the " +
-      "presigned URL, the ObjectCreated event, and the queue delivery.",
+      "presigned URL and the queue delivery. Nothing in this suite touches S3, SQS or the worker, " +
+      "so it stays green while the whole async path is dead — which is exactly what happened.",
     note:
-      "The bucket names now agree (`helpme-avatars-local` in s3.service.ts, local-infra and all " +
-      "three compose services; the unused S3_AVATARS_BUCKET_NAME read is deleted) and " +
-      "`docker compose up -d ai-server` reaches SQS/S3/EventBridge on the host stack. Two things " +
-      "still stand between here and an end-to-end run: `.env` must carry " +
-      "AWS_S3_BUCKET=helpme-avatars-local (it is not in git), and nothing locally turns an S3 " +
-      "ObjectCreated into an SQS message — local-infra defines the queue but no notification rule, " +
-      "so a job has to be enqueued by hand.",
+      "`npm run test:pipeline` (test/ai-test/pipeline_probe.ts) now proves that leg end to end: " +
+      "enrollment, embedding in Postgres, is_verified, MATCH_FOUND and the 1-hour session — all " +
+      "seven checks pass as of 2026-08-22. test/ai-test/presign_check.ts covers the presigned PUT " +
+      "the probe bypasses. Still true locally: nothing turns an S3 ObjectCreated into an SQS " +
+      "message (local-infra declares the queue but no notification rule), so both probes enqueue " +
+      "by hand.",
   },
 ];
 

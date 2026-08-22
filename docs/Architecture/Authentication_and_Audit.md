@@ -17,8 +17,8 @@ Incoming HTTP Request
          │
          ├─── Public Path (/health, /signin)? ───► Next() [Allow without auth]
          │
-         ├─── x-cognito-id header present? ──────► Populate req.auth from x-cognito-id / x-role
-         │                                          ⚠️ ungated — see the warning below
+         ├─── SKIP_AUTH && x-cognito-id header? ─► Populate req.auth from x-cognito-id / x-role
+         │                                          local/dev only — see the note below
          │
          └─── Production Bearer JWT Header? ─────► Verify with aws-jwt-verify (CognitoJwtVerifier)
                                                         │
@@ -29,28 +29,24 @@ Incoming HTTP Request
                                                         └── Invalid? ─► Log warning, Next() (requireRole rejects)
 ```
 
-> **⚠️ The `x-cognito-id` header path is not gated by `SKIP_AUTH`.**
-> `auth.ts` defines `SKIP_AUTH` but never tests it on that branch:
+> **The `x-cognito-id` header path is gated by `SKIP_AUTH`.** It exists so the test suite can
+> authenticate without Cognito, and it is inert wherever `SKIP_AUTH` is not `"true"`:
 >
 > ```ts
-> const headerId = req.headers["x-cognito-id"] as string | undefined;
-> if (headerId) { req.auth = { userId: headerId, role: extractRole([headerRole ?? ""]) }; return next(); }
+> if (SKIP_AUTH && headerId) { req.auth = { userId: headerId, role: extractRole([headerRole ?? ""]) }; return next(); }
 > ```
 >
-> The branch is therefore live wherever the service runs, not only in development. Verified
-> 2026-08-21 against the containers, which do **not** receive `SKIP_AUTH`:
+> Neither `docker-compose.yaml` nor `infra/` sets `SKIP_AUTH`, so the branch is dead in containers
+> and in every deployed environment; `.env` sets it for local development only, and `.env` never
+> ships. A forged header therefore falls through to JWT verification and is rejected with `401`.
 >
-> | Request | Response |
-> | :-- | :-- |
-> | no auth | `401` |
-> | `x-cognito-id: totally-made-up-user` | `404` — authenticated as that user, then not-found |
-> | ` + x-role: admin` | `403` — role taken from the header, then RBAC applied |
->
-> The `404`/`403` come from the authorization layer; authentication was already skipped. Anyone
-> who can reach the API can act as any citizen whose `cognitoId` they know, and can choose their
-> own role. Gating the branch behind `SKIP_AUTH` is the fix; note that the whole
-> [[Services/API_Reference_and_Tests|API suite]] authenticates by header and must then run with
-> `SKIP_AUTH=true`.
+> **This was an open authentication bypass until 2026-08-22.** The gate was missing, so the branch
+> ran ahead of JWT verification in every environment: `x-cognito-id` plus `x-role: admin` granted
+> full admin with no token and no Cognito. Because `SKIP_AUTH` was read into a constant and never
+> tested, setting the variable to `false` did nothing — only the code change closed it.
+> `test/api-test/auth_gate_check.ts` is the standing regression check and asserts the `401`. It runs
+> standalone because the [[Services/API_Reference_and_Tests|API suite]] authenticates by header and
+> therefore forces `SKIP_AUTH=true` for all 63 of its checks — the two cannot share a runner.
 
 ### RBAC Enforcement (`requireRole`)
 

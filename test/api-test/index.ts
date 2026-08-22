@@ -1,6 +1,12 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+// The suite authenticates with x-cognito-id / x-role headers, which auth.ts now trusts ONLY when
+// SKIP_AUTH is true - without that gate a forged header was full admin in production. auth.ts binds
+// the flag at module load, so this assignment must precede every import that reaches the routers,
+// the same rule as event_capture below. Direct assignment (not .env) so the suite is self-contained.
+process.env.SKIP_AUTH = "true";
+
 // Must precede every import that reaches the routers: events.service.ts binds its
 // EventBridge endpoint at module load. See event_capture.ts.
 import { startEventCapture, stopEventCapture } from "./event_capture";

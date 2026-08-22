@@ -49,9 +49,12 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
   const isPublic = PUBLIC_PATHS.some((p) => req.path.endsWith(p));
 
   // Mode 1: Direct x-cognito-id header (for local tests / dev mode)
+  // CHỈ khi SKIP_AUTH=true. Không có cổng này thì bất kỳ ai gửi
+  // `x-cognito-id: <id>` + `x-role: admin` cũng thành admin trên môi trường production —
+  // không cần token, không cần Cognito. Header chỉ được tin ở local.
   const headerId = req.headers["x-cognito-id"] as string | undefined;
   const headerRole = (req.headers["x-role"] as string | undefined)?.toLowerCase();
-  if (headerId) {
+  if (SKIP_AUTH && headerId) {
     req.auth = {
       userId: headerId,
       role: extractRole([headerRole ?? ""]),
