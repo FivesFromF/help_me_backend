@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createWriteApp, createReadApp, performRequest, recordTest, TestResult } from "./test_helper";
+import { prisma } from "../../src/shared/db";
 
 export async function runNfcScanApiTests(
   results: TestResult[],
@@ -471,7 +472,10 @@ export async function runNfcScanApiTests(
   // D. CLEANUP & DELETION TESTS
   // ============================================================================
 
-  // QR-06: DELETE /api/v1/write/qr/:qrId — Delete QR Code
+  // QR-06: DELETE /api/v1/write/qr/:qrId — Unlink QR code
+  // Unlinks rather than deletes, matching the NFC behaviour: the row survives with citizen_id
+  // cleared, so lastUsedAt and the fact the code was ever scanned are not thrown away. The response
+  // therefore reports `unlinked`, not `deleted`.
   {
     const res = await performRequest(
       writeApp,
@@ -479,15 +483,20 @@ export async function runNfcScanApiTests(
       `/api/v1/write/qr/${testQrId}`,
       citizenHeaders
     );
+    const row = await prisma.qrCode.findUnique({ where: { id: testQrId } });
     recordTest(
       results,
       "NFC & Credentials API",
-      "Delete emergency QR code",
+      "Unlink emergency QR code (row survives, owner cleared)",
       "/api/v1/write/qr/:qrId",
       "DELETE",
       200,
       res.status,
-      res.status === 200 && res.body.deleted === true
+      res.status === 200 &&
+        res.body.unlinked === true &&
+        !!row &&
+        row.citizenId === null &&
+        row.status === "INACTIVE"
     );
   }
 

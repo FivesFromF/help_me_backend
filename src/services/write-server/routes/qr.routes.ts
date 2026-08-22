@@ -121,7 +121,8 @@ qrRoutes.patch(
 
       await publishSystemEvent("qr.status_changed", {
         actorId: userId,
-        targetId: qr.citizenId,
+        // Có thể null khi mã đã được gỡ liên kết và chỉ admin đổi trạng thái.
+        targetId: qr.citizenId ?? undefined,
         metadata: { qrId, status: updated.status, byRole: role },
       });
 
@@ -239,8 +240,10 @@ qrRoutes.delete(
 );
 
 // ─── DELETE /api/v1/qr/:qrId — a citizen removes a QR code ───────────────────
-// Deleted outright, unlike an NFC tag: a QR code is a row plus a rendered image, not a physical
-// object anyone can re-issue, so there is no hardware record worth keeping.
+// Unlinks rather than deletes, the same as an NFC tag. A QR code that has been printed onto a card
+// or a sticker still exists in the world after the owner stops using it, and `last_used_at` is the
+// only record that it was ever scanned - dropping the row would throw both away. Status falls to
+// INACTIVE so a relinked row cannot identify anyone until someone reactivates it deliberately.
 qrRoutes.delete(
   ["/qr/:qrId", "/api/qr/:qrId", "/api/v1/write/qr/:qrId", "/api/v1/qr/:qrId"],
   requireRole(["citizen", "admin"]),
@@ -266,15 +269,19 @@ qrRoutes.delete(
         }
       }
 
-      await prisma.qrCode.delete({ where: { id: qrId } });
+      await prisma.qrCode.update({
+        where: { id: qrId },
+        data: { citizenId: null, status: "INACTIVE" },
+      });
 
-      await publishSystemEvent("qr.deleted", {
+      // Ghi lại CHỦ CŨ: sau khi gỡ liên kết thì không còn cách nào biết mã này từng của ai.
+      await publishSystemEvent("qr.unlinked", {
         actorId: userId,
-        targetId: qr.citizenId,
+        targetId: qr.citizenId ?? undefined,
         metadata: { qrId, byRole: role },
       });
 
-      res.status(200).json({ qrId, deleted: true });
+      res.status(200).json({ qrId, unlinked: true, status: "INACTIVE" });
     } catch (err: any) {
       console.error("[qr] delete failed:", err);
       res.status(500).json({ error: err.message || "Failed to delete QR code" });
