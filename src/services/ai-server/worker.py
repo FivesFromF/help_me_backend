@@ -4,6 +4,7 @@ import time
 import logging
 import threading
 from typing import Optional, Dict, Any
+from decimal import Decimal
 import numpy as np
 import cv2
 import boto3
@@ -46,6 +47,24 @@ def get_db_connection():
         return None
 
 
+def _to_dynamo_safe(value: Any) -> Any:
+    """
+    boto3's DynamoDB resource refuses Python floats ("Float types are not supported. Use Decimal
+    types instead") and raises at write time, so a job that matched successfully never leaves
+    PROCESSING and the client polls forever. Converting at this boundary covers every call site.
+    numpy scalars (pgvector distances arrive as np.float64) are not float subclasses, hence .item().
+    """
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, np.generic):
+        return _to_dynamo_safe(value.item())
+    if isinstance(value, dict):
+        return {k: _to_dynamo_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_dynamo_safe(v) for v in value]
+    return value
+
+
 def update_job_status(job_id: str, status: str, result: Optional[Dict[str, Any]] = None, error: Optional[str] = None):
     try:
         table = dynamodb_resource.Table(SCAN_JOBS_TABLE)
@@ -59,7 +78,7 @@ def update_job_status(job_id: str, status: str, result: Optional[Dict[str, Any]]
         if result is not None:
             update_expr += ", #r = :result"
             expr_names["#r"] = "result"
-            expr_values[":result"] = result
+            expr_values[":result"] = _to_dynamo_safe(result)
         if error is not None:
             update_expr += ", #e = :error"
             expr_names["#e"] = "error"
