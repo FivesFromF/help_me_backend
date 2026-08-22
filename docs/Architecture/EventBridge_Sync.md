@@ -11,23 +11,38 @@
 
 | Worker | Trigger Bus | Responsibility |
 | :--- | :--- | :--- |
-| **`post-confirmation`** | Cognito Trigger | Triggered right after citizen confirms email; automatically creates citizen skeleton row in database. |
+| **`post-confirmation`** | Cognito Trigger | Assigns the `Citizens` group and publishes `user.signed_up`. It does **not** create the citizen row - see below. |
 | **`audit-worker`** | `CORE_SYSTEM_BUS` | Records compliance actions, medical access events, and authentication changes. |
 | **`notification-worker`** | `EMERGENCY_BUS` | Sends emergency alerts via SMS/Email and pushes notifications to emergency contacts. |
-| **`grant-permission-worker`** | `EMERGENCY_BUS` | Grants time-limited emergency authorization to authorized responders to access full medical history. |
+| **`grant-permission-worker`** | `EMERGENCY_BUS` | **Retired** - a no-op kept so its rule has a target. Access grants are written by the scan route and the AI worker. |
 
-> **⚠️ `post-confirmation` cannot report its own failure.** The handler body sits in a single
-> `try` whose `catch` only logs, and `main` returns the event regardless — so Cognito confirms the
-> user either way. Two paths reach that catch: `AdminListGroupsForUser` is the first await, so any
-> Cognito error skips the citizen insert below it; and `citizens.email` is `@unique` while a missing
-> `email` attribute defaults to `""`, so the second attribute-less signup violates the constraint.
-> Either one leaves a confirmed user with no citizen row, no error surfaced and no retry — and no
-> HTTP route creates that row, so nothing else repairs it. Cases PC-01–PC-06 in
-> `test/api-test/README.md` §14 are designed against this; the worker has no coverage yet.
+> **The citizen row is created by the API, not by `post-confirmation`.**
+> `shared/services/provision.service.ts` upserts it on the first authenticated request, from the
+> `sub` claim - the same claim every lookup uses. The trigger keeps only Cognito-side work.
+>
+> This is deliberate, and the reasons are worth knowing before anyone moves it back. The trigger
+> runs exactly once with no retry; its `catch` only logs and `main` returns the event regardless, so
+> Cognito confirms the user either way; and it wrote `event.userName`, which for a federated sign-in
+> is `Google_100401295688952411752` while the token's `sub` is a different UUID entirely - so even a
+> successful write produced a row the API could never find. A failure left a confirmed user who
+> could sign in, hold a valid token, and get `404` on every route forever, because no HTTP route
+> created that row either.
+>
+> Provisioning in the API makes both failure modes structurally impossible: the identifier cannot
+> drift, and a missing row repairs itself on the next request. `post-confirmation` deliberately does
+> **not** throw - everything left in it is non-critical, and throwing would make Cognito reject the
+> whole sign-up over a missing group.
 >
 > It is also the only publisher in `src/` that builds `new EventBridgeClient({})` with no endpoint
-> override, so `EVENTBRIDGE_ENDPOINT` does not reach it — only the SDK's own
-> `AWS_ENDPOINT_URL_EVENTBRIDGE` does. See [[Runbooks/Local_Testing]].
+> override, so `event_capture.ts` cannot see its events; testing it needs
+> `AWS_ENDPOINT_URL_EVENTBRIDGE`.
+
+> **Access grants no longer come from an event.** `grant-permission-worker` wrote them to DynamoDB
+> until 2026-08-22. Sessions now live in Postgres and that Lambda has no VPC configuration, so it
+> cannot reach RDS; granting moved into `read-server/routes/scan.routes.ts` and `worker.py`, both of
+> which run inside the VPC. Doing it there also removed a race - the scan response had always
+> claimed `accessGranted: true` while the row was written asynchronously afterwards. See
+> [[Architecture/Authentication_and_Audit]] for the session model itself.
 
 ---
 

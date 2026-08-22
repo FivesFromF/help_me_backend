@@ -1,9 +1,9 @@
 # Session: 22-08-2026 10:26 - first-cloud-deployment
 
 ## Quick Reference
-**Topics:** terraform first apply, S3RVER credentials, vhostBuckets, OpenCV 5 Caffe importer, boto3 Decimal, anti-spoofing fixtures, header auth bypass, SKIP_AUTH gate, R-03 consent defect, IAM orphans, terraform import, env var shadowing, ECR, ECS, pipeline_probe
+**Topics:** just-in-time provisioning, access sessions in Postgres, access complaints, citizen history, QR unlink, emergency report lifecycle, admin API, 12-hour grants, terraform first apply, S3RVER credentials, vhostBuckets, OpenCV 5 Caffe importer, boto3 Decimal, anti-spoofing fixtures, header auth bypass, SKIP_AUTH gate, R-03 consent defect, IAM orphans, terraform import, env var shadowing, ECR, ECS, pipeline_probe
 **Projects:** `help_me_backend` (ai-server, shared middleware, write-server routes, test suites, docs vault, local-infra, infra/terraform)
-**Outcome:** The async AI pipeline runs end to end for the first time (7/7 probe checks), the API suite reached 63/63 after closing a full auth bypass and the consent defect, and the AWS stack was deployed from an empty account. The API is live over HTTPS at `https://d24ebd8yyywrcs.cloudfront.net`; the database was given a read replica and then converted to Multi-AZ instead.
+**Outcome:** The AWS stack went from an empty account to a live HTTPS API at `https://d24ebd8yyywrcs.cloudfront.net`, and the async AI pipeline ran end to end for the first time. Onboarding was rebuilt around just-in-time provisioning in the API, access sessions moved from DynamoDB to Postgres with a complaint mechanism that revokes access, and the citizen/admin API grew a dozen endpoints. Suite: 63 → 75 checks, all passing.
 
 ## Decisions Made
 - **Local S3 clients moved to `S3RVER`/`S3RVER` rather than making the emulator accept `test`/`test`.** The previous session recorded the opposite decision; it was wrong. `serverless-s3-local/index.js:273` never passes `accessKeyId` to `new S3rver({...})` (only to its own client at `:362`), and `s3rver/lib/models/account.js` hardcodes one key pair at module load. There is no config path, so the clients had to change. MinIO stayed rejected.
@@ -17,6 +17,15 @@
 - **CloudFront terminates TLS instead of an ACM certificate on the ALB.** ACM will not issue for `*.elb.amazonaws.com` and the account owns no domain, so the ALB cannot serve HTTPS at all. CloudFront's default `*.cloudfront.net` name carries a trusted certificate, which beat registering a domain (~$12-15/yr plus DNS validation) for a project that needed HTTPS now. Revisit when a real domain exists.
 - **Multi-AZ single standby replaced the read replica**, hours after the replica was built. The standby is not readable, so the read server went back to the primary endpoint: read scaling was traded for automatic failover. At one 0.25-vCPU read task the primary was never the bottleneck, and a single-AZ database was a total-outage risk for an emergency system. Cost is unchanged - both options run a second instance.
 - **`Managed-AllViewerExceptHostHeader` over `Managed-AllViewer`** for the CloudFront origin request policy: both forward `Authorization`, but the ExceptHost variant is what AWS recommends for an ALB origin, since the ALB then sees its own hostname.
+- **Onboarding moved to just-in-time provisioning in the API, not a fixed `post-confirmation` trigger.** The trigger runs once, cannot retry, swallowed its own errors, and wrote `event.userName` while the API queries by `sub` - for federated sign-ins those differ (`Google_1004...` vs `49fa451c-...`), so its row could never be found. Provisioning from the same claim the API queries by makes that class of bug structurally impossible and repairs existing ghost accounts on the next request.
+- **The database dependency was removed from both Lambdas rather than putting them in the VPC.** `post-confirmation` keeps only Cognito work; `notification-worker` receives the victim payload in the event (event-carried state transfer). Neither needs the VPC, so the NAT gateway question disappeared entirely rather than being answered - about $32/month avoided as a side effect of the design being right.
+- **Lambda handlers use `pg`, not Prisma.** `build.js:57` externalises `@prisma/client` and the zip is a single `index.js`, so every Prisma-importing Lambda died at import. Packaging the client plus an `rhel-openssl-3.0.x` engine beat nothing; the four trivial lookups did not need an ORM.
+- **`post-confirmation` does NOT throw on failure** - reversed mid-implementation. Once the API became authoritative, everything left in that `try` was non-critical (a missing `Citizens` group changes nothing, since `extractRole` defaults non-admins to citizen), so throwing would have converted a cosmetic failure into a total sign-up outage.
+- **Access sessions moved to Postgres and are granted by the scan route**, not the `grant-permission-worker` Lambda, which cannot reach RDS from outside the VPC. That also closed a race: the scan response always claimed `accessGranted: true` while the row was written asynchronously afterwards.
+- **Expired sessions are marked `EXPIRED`, never deleted.** They are the access history `emergency_reports.access_session_id` points at and the record of who opened whose file. Deleting them would have destroyed the citizen history page built later the same session.
+- **A complaint is terminal and blocks every route into the data.** Blocking re-access alone was not enough - `/api/scan` returns the record inline, so a responder could simply rescan, and face recognition was a third way in.
+- **Grants last 12 hours, not 1.** Emergency care outlives an hour; a lapse mid-treatment forces a re-scan on a patient who may not be able to present a card. The complaint mechanism is the counterweight.
+- **`is_verified` means "declared a CCCD OR enrolled a face"** - the user's explicit decision after being shown that it conflates document verification with biometric enrolment. Nothing distinguishes the two afterwards.
 - **The generated RDS password was written to `infra/terraform.tfvars` and deliberately NOT printed** to the transcript, per the repo's own secrets convention, even though the offered option said it would be shown.
 
 ## Key Learnings
@@ -39,10 +48,21 @@
 - **Cloud Map is configured but nothing uses it.** No file in `src/` resolves `helpme.local`; the three services never make synchronous calls to each other (write/read coordinate through EventBridge, and the AI service is an SQS consumer with no HTTP surface). It costs roughly $0.70/month - a Route53 private hosted zone plus $0.10 per registered task - and the per-task charge grows with autoscaling.
 - **Scaling is capped well below the API layer.** No ECS autoscaling exists, `desired_count = 1` for both services, tasks are 0.25 vCPU / 512 MB, and `max_connections` on `db.t4g.micro` resolves to about **112** (`LEAST(DBInstanceClassMemory/9531392, 5000)`). Prisma defaults its pool to `num_cpus * 2 + 1`, and in Fargate `os.cpus()` reports the *host's* CPUs rather than the task share - so scaling out exhausts database connections before it exhausts CPU unless `connection_limit` is pinned in `DATABASE_URL`.
 - **Deployed routes need the `/api/v1/...` prefix.** ALB listener rules match `/api/v1/write/*`, `/api/v1/citizen/*` and friends; the short `/api/...` form the tests use matches no rule. Write rules sit at priority 10 so `/api/v1/citizen/first-declare` is not swallowed by the read service's broader `/api/v1/citizen/*` at priority 20.
+- **`terraform apply` cannot deploy Lambda code.** Every function declares `lifecycle { ignore_changes = [filename] }` with no `source_code_hash`, so an apply reports success and silently leaves the old code running. `aws lambda update-function-code` is the only route; `scripts/deploy.ps1` does this.
+- **Cognito `Username` and the `sub` claim differ for federated users.** `Google_100401295688952411752` vs `49fa451c-40e1-702f-da67-bace7e9605c4`. Anything keyed on one and queried by the other silently never matches.
+- **Cognito access tokens carry no `email` claim** - only ID tokens do. The API resolves it via `AdminGetUser` using the `username` claim (present on both token types) when the claim is absent; the task role already grants that permission. ID tokens also carry `cognito:groups`, without which every admin route 403s.
+- **An ALB listener rule accepts at most 5 condition values.** The read rule was already at 5, so `/api/v1/admin/*` needed its own rule rather than a sixth pattern.
+- **A Lambda in a public subnet still has no internet** - Lambda ENIs never get public IPs. But reaching RDS needs only VPC attachment, not NAT: those are different problems, and conflating them cost an unnecessary design detour.
+- **`hasActiveSession` filtered on expiry but never on status** - an unasserted `str.replace` that silently did not match. It would have honoured a `COMPLAINED` session until its hour elapsed. Every scripted edit now asserts its match count.
+- **`ast.parse` does not catch `continue` outside a loop**; only `compile()` does. A misplaced `continue` in `worker.py` passed the parse check and would have crashed the AI worker at import.
+- **Prisma selects every scalar column when a query has no explicit `select`.** A missing `complaint_reason` column in production therefore broke every read of `access_sessions` - history and both admin views - while narrow queries like `hasActiveSession` (which selects only `id`) kept working.
 - **The deployed stack has the S3 → EventBridge → SQS rule that `local-infra` lacks** (`aws_s3_bucket_notification.avatars_eventbridge`, `aws_cloudwatch_event_rule.s3_image_upload`, `s3_to_sqs`). On AWS an upload enqueues its own job; locally both probes must enqueue by hand.
 
 ## Pending Tasks
 - [ ] **The Multi-AZ conversion was still running at session end** (`helpme-db` status `modifying`, `MultiAZ` still `False`). It ends with a brief failover. Confirm with `aws rds describe-db-instances`.
+- [ ] **Two complaint designs now coexist in the schema.** The user added an `AccessComplaint` model (categorised reason, description, `PENDING`/`REVIEWING`/`UPHELD`/`DISMISSED` moderation workflow, one per session) which **nothing in `src/` uses**; the deployed implementation writes `complaintReason`/`complainedAt` onto `AccessSession`. `access_complaints` exists locally but not in production. Offered to migrate onto the model and drop the two columns - unanswered.
+- [ ] **The test suite does not cover most of the new surface.** 75 checks, but the admin API, QR scan branch, credentials, card unlink, report lifecycle, session expiry, complaints and history were each verified once by a scratch script and then deleted.
+- [ ] **Deploying requires a manual schema check.** Production drifted twice ("the db is up to date" was wrong once), and the code deploys fine while the database lags. `access_complaints` is the current known divergence.
 - [ ] **No ECS autoscaling, and `desired_count = 1` on both services.** A single task restart is a full outage - now the weakest link, since Multi-AZ protects only the database. Offered twice, never answered. Pin Prisma's `connection_limit` in `DATABASE_URL` *before* scaling out.
 - [ ] **Decide whether to delete the unused Cloud Map setup** (two `aws_service_discovery_service` resources, both `service_registries` blocks, the VPC namespace). Kept for now; the argument to remove it is that config which looks load-bearing but is not will mislead the next reader.
 - [ ] **AI service capacity is untested under load** - one task doing CPU-heavy face recognition. SQS prevents loss, but the queue simply grows, and queue latency is the product's whole premise.
@@ -241,3 +261,33 @@ Error: updating RDS DB Instance (helpme-db): ... InvalidDBInstanceState: Databas
 RDS was still busy with the replica deletion. Retried once the instance returned to `available`.
 
 **User:** `/compress` (second invocation)
+Updated this log and created [[Runbooks/Cloud_Deployment]].
+
+**User:** "hey hey is it nessarry while i have ssm already?" / "i think we should switch from using lambda grant worker, we do it in the read-server instead"
+Explained that SSM needs an SSM-managed target and RDS is not one - the bastion is the door, SSM is the lock. Confirmed the read-server grant was already what had been built.
+
+**User:** "how do you deal with read server read the replica, write for the main" → "i think the replica need to be gone now, replaced with Multi-AZ DB Instance (Single Standby)"
+Flagged that a Multi-AZ standby is not readable, removed the replica, set `multi_az = true`. First apply failed:
+```
+Error: updating RDS DB Instance (helpme-db): ... InvalidDBInstanceState: Database instance is not in available state.
+```
+RDS was still busy deleting the replica. Retried; `MultiAZ=True`.
+
+**User:** "with this scope like 10000 users at a time, is the replica works fine?"
+No: no autoscaling, `desired_count = 1`, 0.25 vCPU tasks, `max_connections` ≈ 112, and Prisma's default pool (`num_cpus * 2 + 1`, where Fargate reports the HOST's CPUs) exhausts connections before CPU.
+
+**User:** "does the cloudmap service cost?" / "why need that"
+~$0.70/month, and nothing in `src/` resolves `helpme.local` - the three services make no synchronous calls to each other.
+
+**User:** "why i app tell there does not exist access_sessions.comp.aint_reaon"
+Production was missing `complaint_reason` and `complained_at`. Applied them; `qr_codes.citizen_id` had landed.
+
+**User:** "make the seed for seed.ts" / "i want to make the behaviour of removing qr_code like nfc-tags" / "feature history (...)" / "in the access that someone get myself health info, I can send a report ... COMPLAINED"
+Built in sequence: seed rewrite, QR unlink, `GET /api/v1/citizen/history`, and the complaint mechanism. Three bypasses found and closed while building the last one - `/api/victim/:id`, re-scanning (the scan response contains the record), and face recognition.
+
+**User:** "change the access expiration to 12 hour, just change dont commit"
+`SESSION_TTL_SECONDS = 12 * 60 * 60`, three hardcoded `expiresIn: 3600` responses switched to the constant, `INTERVAL '12 hours'` in `worker.py`. Left the presigned-URL `3600`s alone.
+
+**User:** `/commit` → four commits `60d1284` `0d25b62` `13f9965` `5307567`.
+
+**User:** `/compress` (third invocation)

@@ -56,10 +56,12 @@ single-AZ database was a whole-platform outage risk. Cost is the same either way
 instance. Consequence worth keeping: **there is no replication lag**, so write-then-immediately-read
 is consistent.
 
-If a replica is ever reintroduced, the read server can point at it with no code change — each
-service is its own process and reads its own `DATABASE_URL` — but only because the read server
-issues **no** Postgres writes (its writes go to DynamoDB). Verify that still holds before splitting
-the endpoints again, or it will fail with `cannot execute INSERT in a read-only transaction`.
+**A replica can no longer simply be reintroduced.** That option rested on the read server issuing no
+Postgres writes, which stopped being true on 2026-08-22: `scan.routes.ts` now writes the access
+grant itself (`access_sessions`), because the Lambda that used to do it cannot reach RDS from
+outside the VPC. Pointing the read server at a read-only replica today fails with
+`cannot execute INSERT in a read-only transaction` on every successful scan. Splitting the endpoints
+again means routing that one write back to the primary first.
 
 Migrations always target the primary.
 
@@ -92,6 +94,22 @@ cd infra && terraform plan -out=tfplan && terraform apply tfplan
 **Terraform creates both ECR repositories** — `helpme-backend` in `modules/ecs/main.tf:2` and
 `helpme-ai-server` in `modules/ai_service/main.tf`. Do not create them by hand; that causes an
 `EntityAlreadyExists` collision on apply.
+
+> **`terraform apply` cannot deploy Lambda code.** Every function declares
+> `lifecycle { ignore_changes = [filename] }` and no `source_code_hash`, so an apply reports success
+> and leaves the old code running - silently. Ship Lambda changes with the CLI:
+>
+> ```bash
+> aws lambda update-function-code --function-name helpme-post-confirmation --zip-file fileb://infra/modules/lambda/post_confirmation.zip --region ap-southeast-1
+> ```
+>
+> `scripts/deploy.ps1` wraps this. Rebuild the zips with `npm run build` first.
+
+> **Check the production schema before deploying a migration-bearing change.** Code and database are
+> deployed by different hands here, and they have drifted twice. Prisma selects every scalar column
+> when a query has no explicit `select`, so one missing column breaks *every* read of that table -
+> not only the feature that added it. A tunnelled `information_schema.columns` query takes seconds
+> and is worth doing even when the migration is believed to be applied.
 
 ### State backend
 

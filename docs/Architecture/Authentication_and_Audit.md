@@ -72,6 +72,47 @@ Route handlers enforce role permissions using the `requireRole(["citizen" | "adm
 
 ---
 
+## 🚑 1b. Emergency Access Sessions
+
+Identifying a citizen by NFC, QR or face grants the responder a **12-hour** window on that person's
+medical record, stored in Postgres (`access_sessions`, one row per responder/victim pair).
+
+| Status | Meaning |
+| :-- | :-- |
+| `ACTIVE` | live grant; `hasActiveSession` accepts it while `expires_at` is still ahead |
+| `EXPIRED` | the window elapsed |
+| `COMPLAINED` | the victim objected - **terminal**, and never re-granted |
+
+`hasActiveSession` checks **status and clock**, so a row that is due to expire but not yet swept
+still grants nothing, and it fails closed: a database error denies access rather than allowing it.
+
+**Expired rows are marked, never deleted.** They are the access history that
+`emergency_reports.access_session_id` points at and the evidence of who opened whose file; a purge
+would destroy the audit trail rather than tidy it. `expireElapsedSessions()` runs opportunistically
+from the grant and admin-read paths, so there is no scheduler.
+
+Grants are written by `read-server/routes/scan.routes.ts` (NFC, QR) and the Python AI worker (face),
+both inside the VPC - not by an event worker; see [[Architecture/EventBridge_Sync]].
+
+### Complaints revoke access
+
+`POST /api/v1/access/:sessionId/complain`, victim only. Because the medical record is reachable by
+more than one route, a complaint has to close all of them, and each was a separate hole:
+
+- `hasActiveSession` rejects the session, so `/api/victim/:id` refuses;
+- the NFC and QR scan branches check first - **`/api/scan` returns the record inline**, so blocking
+  re-access alone would let the responder simply rescan the card;
+- the AI worker checks before writing a match, completing the job with `matchStatus: ACCESS_REVOKED`;
+- `grantAccessSession` refuses to re-grant a complained pair, so a fresh scan cannot reset it.
+
+Complaints surface to operators at `GET /api/v1/admin/complaints` and as the `access.complained`
+audit event.
+
+> A 12-hour grant is long, and the complaint is **reactive** - it depends on the citizen noticing
+> on their history page ([[Services/API_Reference_and_Tests]]). There is no proactive revocation.
+
+---
+
 ## 📝 2. Platform Audit Trail (EventBridge & DynamoDB)
 
 Every critical security event, user state change, and emergency action is captured as an immutable event in the **`helpme-audit-logs`** DynamoDB table via AWS EventBridge and the `audit-worker` Lambda.
