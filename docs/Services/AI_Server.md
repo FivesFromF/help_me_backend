@@ -17,10 +17,25 @@
   4. `worker.py` downloads image, runs MediaPipe quality validation, MiniFASNet anti-spoofing check, and EdgeFace 512-d feature extraction.
   5. **Face Search Mode**:
      - Executes PostgreSQL `pgvector` nearest-neighbor distance query (`<=>`) with `LIMIT 3` and distance threshold `< 0.35`.
-     - Returns the **Top 3 matching candidates** with full profile and medical records.
+     - Returns **up to 3 candidates** with full profile and medical records. *Up to*: the threshold
+       filters before the limit, so a scan that matches one person returns one.
+     - Resolves complaints for the **whole candidate set** in one query on the cursor already open.
+       A complained citizen is dropped before their record is fetched, so it never enters the
+       payload — checking only the top match would leak candidates 2 and 3 to a responder they had
+       already revoked. If every candidate is suppressed the job returns `ACCESS_REVOKED`. The result
+       reports `suppressedCount`: how many were withheld, never who.
      - Saves results in DynamoDB (`helpme-scan-jobs`) with a 2-hour TTL (scans only — see enrolment below).
-     - Grants a 1-hour temporary session in `helpme-access-sessions` for the primary match.
-     - Dispatches `victim.identified` to EventBridge (`EMERGENCY_BUS`) for automated responder notifications.
+     - Masks `cccdNumber` to its last four digits **before writing**, not on the way out — the job
+       record is what the responder reads, so masking at read time would leave the full number stored
+       in a second place. `mask_cccd` mirrors `maskCccd` in `shared/services/mask.service.ts`; both
+       are idempotent. See [[Architecture/Authentication_and_Audit]].
+     - Grants a **12-hour** session in Postgres `access_sessions` for **every candidate returned**,
+       not just the primary. If a person's medical record is in the response, that access has to be
+       visible on their history page and open to complaint.
+     - Dispatches `victim.identified` to EventBridge (`EMERGENCY_BUS`) for the **primary only**. That
+       event drives the next-of-kin alert; firing it for candidates 2 and 3 would tell two uninvolved
+       families their relative is in an emergency. Granting is accountability, alerting is a claim
+       about reality.
   6. **Face Enrollment Mode**:
      - Re-reads the job record to recover `citizen_id`, then updates `citizens.face_embedding` in
        PostgreSQL with the normalized 512-float vector and sets `is_verified = true`, using
@@ -39,7 +54,12 @@
      - `avatar_url` holds a key, not a URL, because the bucket blocks all public access — a stored
        `https://` object URL would `403` forever. Read paths sign it on the way out with
        `resolveAvatarUrl()` (`shared/services/s3.service.ts`), which passes absolute URLs (seed data,
-       externally hosted images) through untouched and returns `null` rather than throwing.
+       externally hosted images) through untouched and returns `null` rather than throwing. Every
+       responder-facing path signs it — scan, job polling, victim re-access, admin, history — so a
+       path that forgets hands the client a bare key and renders a broken image.
+     - **A signed URL outlives the session that produced it.** `resolveAvatarUrl` signs for 1 hour,
+       independent of the 12-hour grant, and S3 cannot revoke an issued signature. A complaint blocks
+       the API instantly but an already-issued avatar link keeps serving for up to an hour.
      - Updates job status to `COMPLETED` in DynamoDB.
      - **`COMPLETED` is only written when a row was actually updated.** A missing/expired job record
        (no `citizen_id`) or an `UPDATE` matching zero rows both end as `FAILED` with an explicit
@@ -108,6 +128,19 @@ image build after OpenCV 5.0's release silently jumped major versions and every 
 
 This is not local-only: `requirements.txt` builds the **production** image as well. The permanent
 fix is converting the detector weights to ONNX, which needs its own accuracy validation.
+
+### ⚠️ The AI task needs its own path into RDS
+
+SQS, S3 and DynamoDB are public endpoints, so the worker reaches them from anywhere. Postgres is not.
+`aws_security_group_rule.ai_tasks_to_rds` (declared in `infra/main.tf`, not inside `modules/rds`, so
+`rds` never has to depend on `ai_service` — which already depends on it for the endpoint) opens 5432
+from the AI task's security group.
+
+Without it the container reaches every AWS service and still fails every job at
+`Database connection unavailable`. A blocked security group **drops** packets rather than refusing
+them, so the failure is a timeout, not a connection error — and `psycopg2` hangs for ~131s unless
+`connect_timeout` is set, which exceeds the queue's 120s `VisibilityTimeout` and gets the message
+redelivered while the worker still holds it. `get_db_connection()` passes `connect_timeout=10`.
 
 ### ⚠️ Endpoints and credentials — `LOCAL_AWS_EMULATION`
 

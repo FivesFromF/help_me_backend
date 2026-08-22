@@ -101,6 +101,27 @@ a later scan without a fix uses `COALESCE` so it cannot erase a location an earl
 The same coordinates ride in the `victim.identified` event's `metadata`, so the audit trail records
 where every identification happened without a second write.
 
+### CCCD masking
+
+`citizens.cccd_number` leaves the API as `********9885` — last four digits only — on every path
+where the viewer is **not** the owner: `/api/scan` (NFC, QR, face, and every `topMatches` entry),
+`GET /api/scan/jobs/:jobId`, `GET /api/victim/:id`, and the admin registry and citizen detail. Four
+digits match the card in a victim's wallet; twelve open a bank account. `maskCccd` and
+`maskCitizenIdentifiers` live in `shared/services/mask.service.ts`, with an idempotent Python mirror
+in `worker.py` so both scan paths agree.
+
+The owner keeps the full number on `GET` and `PUT /api/citizen/profile`. Masking guards one person's
+identity from another; against the subject it protects nobody and denies them their own data.
+
+> [!warning] The write path must ignore a masked value, and that rule outlives the exemption above.
+> The app loads a profile, fills the edit form, the user taps save — and a masked value comes back.
+> Writing it **erases the real number irreversibly** and still sets `is_verified`, because the string
+> is non-empty. `PUT /api/citizen/profile` treats any `cccdNumber` containing `*` as "unchanged".
+> This stays necessary even with the owner unmasked: an older client build can still round-trip one.
+
+Admin search is unaffected — `q` filters the real column in Postgres; only the returned value is
+masked.
+
 **Expired rows are marked, never deleted.** They are the access history that
 `emergency_reports.access_session_id` points at and the evidence of who opened whose file; a purge
 would destroy the audit trail rather than tidy it. `expireElapsedSessions()` runs opportunistically
@@ -164,7 +185,7 @@ Every critical security event, user state change, and emergency action is captur
 | **`nfc.registered`** | `CORE_SYSTEM_BUS` | NFC tag registered and linked to citizen | `helpme.backend` |
 | **`emergency.reported`** | `CORE_SYSTEM_BUS` | Citizen or Admin files an emergency report | `helpme.backend` |
 | **`victim.identified`** | `EMERGENCY_BUS` | Face/NFC scan matches victim; triggers session grant & email alert | `helpme.ai-service` / `helpme.backend` |
-| **`victim.record.accessed`** | `CORE_SYSTEM_BUS` | Responder re-accesses medical record within 1-hour session | `helpme.backend` |
+| **`victim.record.accessed`** | `CORE_SYSTEM_BUS` | Responder re-accesses medical record within the 12-hour session | `helpme.backend` |
 
 ---
 
