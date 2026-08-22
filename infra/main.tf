@@ -132,6 +132,11 @@ module "ecs" {
   vpc_id       = module.vpc.vpc_id
   subnet_ids   = module.vpc.public_subnets # Using public subnets for MVP simplicity (assign_public_ip=true)
 
+  # modules/ecs registers write/read in Cloud Map (aws_service_discovery_service), which needs the
+  # namespace the VPC module already creates (helpme.local). The wiring was missing, so `plan`
+  # failed with "The argument service_discovery_namespace_id is required".
+  service_discovery_namespace_id = module.vpc.service_discovery_namespace_id
+
   # ALB Integration
   alb_sg_id              = module.alb.alb_sg_id
   write_target_group_arn = module.alb.write_target_group_arn
@@ -184,4 +189,11 @@ output "rds_endpoint" {
 
 output "ai_repository_url" {
   value = module.ai_service.repository_url
+}
+
+# TLS front door. See modules/cloudfront/main.tf for why the ALB cannot terminate TLS itself.
+module "cloudfront" {
+  source       = "./modules/cloudfront"
+  project_name = var.project_name
+  alb_dns_name = module.alb.alb_dns_name
 }

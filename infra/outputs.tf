@@ -37,3 +37,8 @@ output "rds_cluster_endpoint" {
   description = "The endpoint of the RDS cluster"
   value       = module.rds.cluster_endpoint
 }
+
+output "api_url" {
+  description = "HTTPS entry point for the API (CloudFront in front of the ALB)"
+  value       = module.cloudfront.api_url
+}
