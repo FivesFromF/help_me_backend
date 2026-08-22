@@ -16,6 +16,19 @@
 | **`notification-worker`** | `EMERGENCY_BUS` | Sends emergency alerts via SMS/Email and pushes notifications to emergency contacts. |
 | **`grant-permission-worker`** | `EMERGENCY_BUS` | Grants time-limited emergency authorization to authorized responders to access full medical history. |
 
+> **⚠️ `post-confirmation` cannot report its own failure.** The handler body sits in a single
+> `try` whose `catch` only logs, and `main` returns the event regardless — so Cognito confirms the
+> user either way. Two paths reach that catch: `AdminListGroupsForUser` is the first await, so any
+> Cognito error skips the citizen insert below it; and `citizens.email` is `@unique` while a missing
+> `email` attribute defaults to `""`, so the second attribute-less signup violates the constraint.
+> Either one leaves a confirmed user with no citizen row, no error surfaced and no retry — and no
+> HTTP route creates that row, so nothing else repairs it. Cases PC-01–PC-06 in
+> `test/api-test/README.md` §14 are designed against this; the worker has no coverage yet.
+>
+> It is also the only publisher in `src/` that builds `new EventBridgeClient({})` with no endpoint
+> override, so `EVENTBRIDGE_ENDPOINT` does not reach it — only the SDK's own
+> `AWS_ENDPOINT_URL_EVENTBRIDGE` does. See [[Runbooks/Local_Testing]].
+
 ---
 
 ## 🧪 What is verified
