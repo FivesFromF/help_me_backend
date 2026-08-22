@@ -78,8 +78,13 @@ services:
     # "Could not connect to the endpoint URL: http://localhost:9324/" forever.
     environment:
       - AWS_REGION=ap-southeast-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
+      # S3RVER, not test: serverless-s3-local wraps s3rver, which registers exactly one key pair
+      # (S3RVER/S3RVER, lib/models/account.js) and rejects every other key with 403 InvalidAccessKeyId
+      # before checking the signature. custom.s3.accessKeyId does NOT change that — the plugin never
+      # passes it to the server. boto3 has no per-service credentials, so this is global; harmless
+      # because DynamoDB Local (-sharedDb) and ElasticMQ accept any key.
+      - AWS_ACCESS_KEY_ID=S3RVER
+      - AWS_SECRET_ACCESS_KEY=S3RVER
       # EventBridge — worker.py's events_client reads AWS_ENDPOINT_URL (its default is LocalStack's
       # :4566, which this project does not run).
       - AWS_ENDPOINT_URL=http://host.docker.internal:4010

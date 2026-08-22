@@ -61,6 +61,11 @@ custom:
     directory: ./.local-s3        # files are stored here on disk
     cors: false
     allowMismatchedSignatures: true
+    # s3rver defaults this to true, and its vhost middleware then treats ANY hostname that is not an
+    # IP or "localhost" as a bucket name (lib/middleware/vhost.js:33) — so a container calling
+    # host.docker.internal:4569 has its path rewritten to /host.docker.internal/<real-bucket>/<key>
+    # and gets NoSuchBucket. Path-style addressing only works with this off.
+    vhostBuckets: false
     # The plugin defaults these to "S3RVER" and rejects any other key with
     # 403 InvalidAccessKeyId. `s3.service.ts:9` hardcodes test/test whenever an S3 endpoint is set,
     # and worker.py does the same — so the emulator has to accept test/test, or every upload
