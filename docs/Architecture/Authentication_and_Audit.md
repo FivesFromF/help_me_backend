@@ -86,6 +86,21 @@ medical record, stored in Postgres (`access_sessions`, one row per responder/vic
 `hasActiveSession` checks **status and clock**, so a row that is due to expire but not yet swept
 still grants nothing, and it fails closed: a database error denies access rather than allowing it.
 
+### Scan location
+
+Each session also carries `scan_lat` / `scan_lon` — where the responder was when they identified the
+citizen. All three methods supply it: NFC and QR from the `/api/scan` body (`lat`/`lon`, or
+`latitude`/`longitude`), face from `POST /upload-url`, because the AI worker runs long after the
+phone has left the scene and the job record is the only place that knowledge can survive.
+
+Both columns are **nullable and never required**. A denied location permission, a basement, or a
+slow fix must not cost a responder the medical record — blocking the golden-hour path over a GPS
+reading is the wrong trade. Coordinates are validated (finite, in range) and otherwise dropped, and
+a later scan without a fix uses `COALESCE` so it cannot erase a location an earlier scan recorded.
+
+The same coordinates ride in the `victim.identified` event's `metadata`, so the audit trail records
+where every identification happened without a second write.
+
 **Expired rows are marked, never deleted.** They are the access history that
 `emergency_reports.access_session_id` points at and the evidence of who opened whose file; a purge
 would destroy the audit trail rather than tidy it. `expireElapsedSessions()` runs opportunistically
@@ -157,5 +172,8 @@ Every critical security event, user state change, and emergency action is captur
 
 1. **`post-confirmation`**: Auto-assigns new users to the `Citizens` Cognito group and inserts an initial record into PostgreSQL `citizens` table, then emits `user.signed_up`.
 2. **`audit-worker`**: Subscribes to `CORE_SYSTEM_BUS` and `EMERGENCY_BUS` and persists every event to `helpme-audit-logs`.
-3. **`grant-permission-worker`**: Subscribes to `victim.identified` on `EMERGENCY_BUS` and creates a 1-hour temporary access token in `helpme-access-sessions`.
-4. **`notification-worker`**: Subscribes to `victim.identified` and dispatches automated email alerts to the citizen's emergency contacts.
+3. **`notification-worker`**: Subscribes to `victim.identified` and dispatches automated email alerts to the citizen's emergency contacts.
+
+> `grant-permission-worker` used to sit in this list, creating the access session from
+> `victim.identified`. It was deleted on 2026-08-22: sessions live in Postgres, the scan route and
+> the AI worker write them synchronously, and no Lambda is involved in granting any more.

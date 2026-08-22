@@ -40,3 +40,27 @@ export async function getPresignedDownloadUrl(key: string): Promise<string> {
 
   return getSignedUrl(s3Client, command, { expiresIn: 3600 });
 }
+
+/**
+ * Turn a stored `citizens.avatar_url` into something a client can actually fetch.
+ *
+ * Face enrolment writes the **S3 key** (`raw-uploads/<jobId>.jpg`), because the bucket blocks all
+ * public access — a stored `https://...` object URL would 403 forever. Seed data and any externally
+ * hosted image store an absolute URL instead, so those pass through untouched.
+ *
+ * Returns null rather than throwing: a missing avatar must never fail the request carrying it, and
+ * on the emergency path that request is a medical record.
+ */
+export async function resolveAvatarUrl(
+  avatarUrl: string | null | undefined,
+): Promise<string | null> {
+  if (!avatarUrl) return null;
+  if (/^https?:\/\//i.test(avatarUrl)) return avatarUrl;
+
+  try {
+    return await getPresignedDownloadUrl(avatarUrl);
+  } catch (err) {
+    console.warn(`[s3] could not presign avatar key "${avatarUrl}":`, err);
+    return null;
+  }
+}

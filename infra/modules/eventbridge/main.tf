@@ -67,20 +67,15 @@ resource "aws_cloudwatch_event_target" "notification_lambda" {
 }
 
 
-
-resource "aws_cloudwatch_event_target" "grant_lambda" {
-  rule           = aws_cloudwatch_event_rule.identification.name
-  event_bus_name = aws_cloudwatch_event_bus.emergency.name
-  target_id      = "GrantLambda"
-  arn            = var.grant_permission_lambda_arn
-}
+# Removed 2026-08-22: the GrantLambda target invoked grant-permission-worker, which had been a no-op
+# since access sessions moved to Postgres. The identification rule keeps notification_lambda above,
+# so it still has a live target.
 
 # --- Variables & Outputs ---
 
 variable "project_name" {}
 variable "audit_lambda_arn" {}
 variable "notification_lambda_arn" {}
-variable "grant_permission_lambda_arn" {}
 
 output "system_bus_name" {
   value = aws_cloudwatch_event_bus.system.name

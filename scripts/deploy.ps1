@@ -26,7 +26,6 @@ $LAMBDA_MAP = @{
     "post-confirmation" = @{ zip = "infra/modules/lambda/post_confirmation.zip"; func = "helpme-post-confirmation" }
     "audit"            = @{ zip = "infra/modules/lambda/audit_worker.zip"; func = "helpme-audit-worker" }
     "notification"     = @{ zip = "infra/modules/lambda/notification_worker.zip"; func = "helpme-notification-worker" }
-    "grant"            = @{ zip = "infra/modules/lambda/grant_permission_worker.zip"; func = "helpme-grant-permission-worker" }
 }
 
 # Mapping Service Name -> Dockerfile & Context

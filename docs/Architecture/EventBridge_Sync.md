@@ -14,7 +14,6 @@
 | **`post-confirmation`** | Cognito Trigger | Assigns the `Citizens` group and publishes `user.signed_up`. It does **not** create the citizen row - see below. |
 | **`audit-worker`** | `CORE_SYSTEM_BUS` | Records compliance actions, medical access events, and authentication changes. |
 | **`notification-worker`** | `EMERGENCY_BUS` | Sends emergency alerts via SMS/Email and pushes notifications to emergency contacts. |
-| **`grant-permission-worker`** | `EMERGENCY_BUS` | **Retired** - a no-op kept so its rule has a target. Access grants are written by the scan route and the AI worker. |
 
 > **The citizen row is created by the API, not by `post-confirmation`.**
 > `shared/services/provision.service.ts` upserts it on the first authenticated request, from the
@@ -37,12 +36,14 @@
 > override, so `event_capture.ts` cannot see its events; testing it needs
 > `AWS_ENDPOINT_URL_EVENTBRIDGE`.
 
-> **Access grants no longer come from an event.** `grant-permission-worker` wrote them to DynamoDB
-> until 2026-08-22. Sessions now live in Postgres and that Lambda has no VPC configuration, so it
-> cannot reach RDS; granting moved into `read-server/routes/scan.routes.ts` and `worker.py`, both of
-> which run inside the VPC. Doing it there also removed a race - the scan response had always
-> claimed `accessGranted: true` while the row was written asynchronously afterwards. See
-> [[Architecture/Authentication_and_Audit]] for the session model itself.
+> **Access grants no longer come from an event, and `grant-permission-worker` no longer exists.**
+> It wrote grants to DynamoDB until 2026-08-22. Sessions moved to Postgres, which that Lambda could
+> not reach - it had no VPC configuration - so granting moved into `read-server/routes/scan.routes.ts`
+> and `worker.py`, both of which run inside the VPC. Doing it there also removed a race: the scan
+> response had always claimed `accessGranted: true` while the row was written asynchronously
+> afterwards. The Lambda survived a few hours as a no-op and was deleted the same day, along with its
+> `GrantLambda` target on the identification rule. See [[Architecture/Authentication_and_Audit]] for
+> the session model itself.
 
 ---
 
@@ -50,13 +51,13 @@
 
 `npm run test:api` covers both halves of this diagram: §9 asserts that each route publishes its
 documented event **to the documented bus**, and §10 hands those captured events to the real
-handlers and asserts the effect — the access session, the audit row, the alert email. The chain
-check (scan → `victim.identified` → `grant-permission-worker` → victim record readable) is the
-one that proves the buses are wired end to end. See [[Services/API_Reference_and_Tests]].
+handlers and asserts the effect — the audit row, the alert email. The chain check
+(scan → access session written by the scan route → victim record readable) is the one that proves
+the path is wired end to end. See [[Services/API_Reference_and_Tests]].
 
-`victim.identified` must stay on **`EMERGENCY_BUS`**: `grant-permission-worker` and
-`notification-worker` subscribe to it there, so publishing it to the system bus would strand
-every downstream alert while the scan itself still returned `200`.
+`victim.identified` must stay on **`EMERGENCY_BUS`**: `notification-worker` subscribes to it there,
+so publishing it to the system bus would strand every downstream alert while the scan itself still
+returned `200`.
 
 The audit worker reads **`AUDIT_TABLE_NAME`** and drops events when it is unset — see
 [[Runbooks/Local_Testing]].

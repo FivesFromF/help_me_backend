@@ -83,3 +83,10 @@ variable "bastion_sg_id" {}
 output "cluster_endpoint" {
   value = aws_db_instance.main.address
 }
+
+# Exposed so callers can attach further 5432 ingress without editing this module — see the
+# ai_tasks_to_rds rule in infra/main.tf. Adding that ingress here instead would make rds depend on
+# ai_service, which already depends on rds for the endpoint: a module cycle.
+output "security_group_id" {
+  value = aws_security_group.rds.id
+}

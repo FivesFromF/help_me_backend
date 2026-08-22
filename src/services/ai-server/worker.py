@@ -16,19 +16,44 @@ logger = logging.getLogger("ai-worker")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
 
 AWS_REGION = os.getenv("AWS_REGION", "ap-southeast-1")
-ENDPOINT_URL = os.getenv("AWS_ENDPOINT_URL") or os.getenv("LOCALSTACK_URL") or "http://localhost:4566"
-SQS_ENDPOINT_URL = os.getenv("SQS_ENDPOINT_URL") or os.getenv("AWS_ENDPOINT_URL") or "http://localhost:9324"
-DYNAMO_ENDPOINT_URL = os.getenv("DYNAMODB_ENDPOINT") or os.getenv("AWS_ENDPOINT_URL") or "http://localhost:8001"
-S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL") or os.getenv("AWS_ENDPOINT_URL") or "http://localhost:4569"
 
-QUEUE_URL = os.getenv("AI_JOBS_QUEUE_URL", "http://localhost:9324/queue/helpme-ai-jobs-queue")
+# ─── Local emulator wiring ────────────────────────────────────────────────────
+# LOCAL_AWS_EMULATION=true nói rằng AWS ở đây là stack giả lập (ElasticMQ, s3rver, DynamoDB Local,
+# serverless-offline EventBridge). Chỉ khi đó mới dùng endpoint localhost và credentials giả.
+#
+# Trước 2026-08-22 hai thứ này được áp dụng vô điều kiện, và task Fargate đã chết câm vì thế:
+# endpoint_url rơi về http://localhost:9324 (chính nó), còn setdefault ghi AWS_ACCESS_KEY_ID=test
+# đè lên ECS task role — env var đứng trước container credential provider trong boto3. Task vẫn
+# "running", vẫn steady state, chỉ log "Error polling SQS" mỗi 5 giây và không nhận nổi một message.
+# Mặc định phải là AWS thật: sai ở local thì lỗi ngay, sai ở cloud thì im lặng hàng giờ.
+LOCAL_AWS = os.getenv("LOCAL_AWS_EMULATION", "").strip().lower() in ("1", "true", "yes")
+
+
+def _endpoint(*env_names: str, local_default: str) -> Optional[str]:
+    """Override tường minh thắng; nếu không, dùng emulator khi LOCAL_AWS, còn lại None = AWS thật."""
+    for name in env_names:
+        value = os.getenv(name)
+        if value:
+            return value
+    return local_default if LOCAL_AWS else None
+
+
+ENDPOINT_URL = _endpoint("AWS_ENDPOINT_URL", "LOCALSTACK_URL", local_default="http://localhost:4566")
+SQS_ENDPOINT_URL = _endpoint("SQS_ENDPOINT_URL", "AWS_ENDPOINT_URL", local_default="http://localhost:9324")
+DYNAMO_ENDPOINT_URL = _endpoint("DYNAMODB_ENDPOINT", "AWS_ENDPOINT_URL", local_default="http://localhost:8001")
+S3_ENDPOINT_URL = _endpoint("S3_ENDPOINT_URL", "AWS_ENDPOINT_URL", local_default="http://localhost:4569")
+
+QUEUE_URL = os.getenv("AI_JOBS_QUEUE_URL") or (
+    "http://localhost:9324/queue/helpme-ai-jobs-queue" if LOCAL_AWS else ""
+)
 SCAN_JOBS_TABLE = os.getenv("SCAN_JOBS_TABLE", "helpme-scan-jobs")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/helpme")
 EMERGENCY_BUS_NAME = os.getenv("EMERGENCY_BUS_NAME", "helpme-emergency-bus")
 
-# Credentials for local testing
-os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
-os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
+if LOCAL_AWS:
+    # Emulator nhận key bất kỳ; riêng s3rver chỉ nhận đúng S3RVER/S3RVER — docker-compose set sẵn.
+    os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
+    os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 
 sqs_client = boto3.client("sqs", region_name=AWS_REGION, endpoint_url=SQS_ENDPOINT_URL)
 s3_client = boto3.client("s3", region_name=AWS_REGION, endpoint_url=S3_ENDPOINT_URL)
@@ -40,7 +65,11 @@ def get_db_connection():
     if not DATABASE_URL:
         return None
     try:
-        return psycopg2.connect(DATABASE_URL)
+        # connect_timeout là bắt buộc, không phải tinh chỉnh. Khi security group chặn 5432 thì gói tin
+        # bị drop chứ không bị từ chối, nên psycopg2 treo tới lúc TCP timeout của OS — đo được ~131s.
+        # VisibilityTimeout của queue là 120s: message hiện lại trong khi worker vẫn đang giữ nó, và
+        # bị phát lại. Một task thì chỉ là xử lý trùng; scale lên là hai task cùng tải một ảnh.
+        return psycopg2.connect(DATABASE_URL, connect_timeout=10)
     except Exception as e:
         logger.error(f"Failed to connect to PostgreSQL: {e}")
         return None
@@ -118,7 +147,12 @@ def is_complained(responder_id: str, victim_id: str) -> bool:
         conn.close()
 
 
-def grant_access_session(responder_id: str, victim_id: str):
+def grant_access_session(
+    responder_id: str,
+    victim_id: str,
+    scan_lat: Optional[str] = None,
+    scan_lon: Optional[str] = None,
+):
     """
     Cấp quyền truy cập 1 giờ, nay ghi vào bảng Postgres `access_sessions` thay vì DynamoDB.
 
@@ -134,21 +168,53 @@ def grant_access_session(responder_id: str, victim_id: str):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO access_sessions (responder_id, victim_id, method, granted_at, expires_at)
-                VALUES (%s, %s::uuid, 'FACE', NOW(), NOW() + INTERVAL '12 hours')
+                INSERT INTO access_sessions
+                    (responder_id, victim_id, method, granted_at, expires_at, scan_lat, scan_lon)
+                VALUES (%s, %s::uuid, 'FACE', NOW(), NOW() + INTERVAL '12 hours', %s, %s)
                 ON CONFLICT (responder_id, victim_id)
                 DO UPDATE SET expires_at = EXCLUDED.expires_at,
                               granted_at = EXCLUDED.granted_at,
                               method     = EXCLUDED.method,
-                              status     = 'ACTIVE'
+                              status     = 'ACTIVE',
+                              -- COALESCE: lần quét không có GPS không được xoá vị trí đã biết.
+                              scan_lat   = COALESCE(EXCLUDED.scan_lat, access_sessions.scan_lat),
+                              scan_lon   = COALESCE(EXCLUDED.scan_lon, access_sessions.scan_lon)
                 """,
-                (responder_id, victim_id),
+                (responder_id, victim_id, scan_lat, scan_lon),
             )
         conn.commit()
     except Exception as e:
         logger.error(f"Failed to create access session in Postgres: {e}")
     finally:
         conn.close()
+
+
+def copy_avatar_object(bucket: str, source_key: str, citizen_uuid: str) -> Optional[str]:
+    """
+    Sao chép ảnh enroll sang `avatars/<citizenId>.jpg` và trả về key đó.
+
+    Đích PHẢI nằm ngoài `raw-uploads/` và `raw-scans/`: EventBridge rule chỉ lọc theo hai prefix đó
+    (`infra/modules/sqs/main.tf`), nên bản sao không sinh job mới. Nếu đặt vào một trong hai prefix,
+    bản sao sẽ được xử lý như một lần QUÉT - job ma, cấp access session, bắn `victim.identified`,
+    và người thân nhận cảnh báo cấp cứu giả.
+
+    Key ổn định theo citizen nên enroll lại sẽ ghi đè, và ảnh gốc trong `raw-uploads/` có thể xoá
+    theo lifecycle mà không làm hỏng avatar. Lỗi sao chép trả về None: enroll khuôn mặt vẫn thành
+    công, chỉ là avatar giữ nguyên giá trị cũ.
+    """
+    avatar_key = f"avatars/{citizen_uuid}.jpg"
+    try:
+        s3_client.copy_object(
+            Bucket=bucket,
+            CopySource={"Bucket": bucket, "Key": source_key},
+            Key=avatar_key,
+            ContentType="image/jpeg",
+            MetadataDirective="REPLACE",
+        )
+        return avatar_key
+    except Exception as e:
+        logger.error(f"Failed to copy avatar {source_key} -> {avatar_key}: {e}")
+        return None
 
 
 def publish_emergency_event(detail_type: str, detail: Dict[str, Any]):
@@ -222,15 +288,67 @@ def process_s3_image(processor: FaceProcessor, bucket: str, key: str):
                 job_resp = job_table.get_item(Key={"job_id": job_id})
                 citizen_id = job_resp.get("Item", {}).get("citizen_id")
 
-                if citizen_id:
-                    cur.execute(
-                        "UPDATE citizens SET face_embedding = %s::vector, is_verified = true, updated_at = NOW() WHERE id = %s OR cognito_id = %s",
-                        (vector_str, citizen_id, citizen_id),
+                # Không có citizen_id thì KHÔNG có gì để enroll. Trước 2026-08-22 nhánh này vẫn báo
+                # COMPLETED + enrolled: true, nên client tin là đã đăng ký khuôn mặt trong khi
+                # face_embedding chưa từng được ghi. Bản ghi job hết hạn (TTL 2h) trong khi message
+                # SQS sống 24h, nên chỉ cần worker chậm hơn 2 tiếng là mọi job rơi vào đúng lỗ này.
+                if not citizen_id:
+                    logger.error(
+                        "Enrollment job %s has no citizen_id (job record missing or expired) — "
+                        "refusing to report success", job_id,
                     )
-                    conn.commit()
-                    logger.info(f"Updated face embedding for citizen {citizen_id}")
+                    update_job_status(
+                        job_id, "FAILED",
+                        error="Job metadata missing or expired; nothing was enrolled. Please upload again.",
+                    )
+                    return
 
-                update_job_status(job_id, "COMPLETED", result={"enrolled": True, "citizenId": citizen_id})
+                # RETURNING id để lấy UUID thật: citizen_id truyền vào có thể là cognito_id, mà key
+                # của avatar phải ổn định theo một định danh duy nhất.
+                cur.execute(
+                    """
+                    UPDATE citizens
+                       SET face_embedding = %s::vector,
+                           is_verified    = true,
+                           updated_at     = NOW()
+                     WHERE id = %s OR cognito_id = %s
+                 RETURNING id
+                    """,
+                    (vector_str, citizen_id, citizen_id),
+                )
+                updated = cur.fetchone()
+                # UPDATE không khớp dòng nào cũng là "thành công" với psycopg2 — phải tự kiểm,
+                # nếu không thì một citizen_id sai vẫn trả về enrolled: true.
+                if updated is None:
+                    conn.rollback()
+                    logger.error("Enrollment job %s: no citizen matched %s", job_id, citizen_id)
+                    update_job_status(
+                        job_id, "FAILED",
+                        error=f"No citizen matched {citizen_id}; nothing was enrolled.",
+                    )
+                    return
+
+                resolved_id = str(updated["id"])
+
+                # avatar_url giữ **S3 key**, không phải URL đầy đủ: bucket chặn toàn bộ public access
+                # nên một https://... lưu sẵn sẽ 403 vĩnh viễn. Đường đọc ký presigned GET từ key này
+                # (`resolveAvatarUrl` trong s3.service.ts).
+                avatar_key = copy_avatar_object(bucket, key, resolved_id)
+                if avatar_key:
+                    cur.execute(
+                        "UPDATE citizens SET avatar_url = %s WHERE id = %s",
+                        (avatar_key, resolved_id),
+                    )
+
+                conn.commit()
+                logger.info(
+                    f"Enrolled citizen {resolved_id} (avatar_url={avatar_key or 'unchanged'})"
+                )
+                update_job_status(
+                    job_id,
+                    "COMPLETED",
+                    result={"enrolled": True, "citizenId": resolved_id, "avatarKey": avatar_key},
+                )
             else:
                 # Face Search Flow (Top 3 Candidates)
                 cur.execute(
@@ -252,7 +370,11 @@ def process_s3_image(processor: FaceProcessor, bucket: str, key: str):
                     # Lookup responder_id from Job
                     job_table = dynamodb_resource.Table(SCAN_JOBS_TABLE)
                     job_resp = job_table.get_item(Key={"job_id": job_id})
-                    responder_id = job_resp.get("Item", {}).get("responder_id", "system")
+                    job_item = job_resp.get("Item", {}) or {}
+                    responder_id = job_item.get("responder_id", "system")
+                    # Toạ độ được ghi lúc xin presigned URL - lúc đó điện thoại còn ở hiện trường.
+                    scan_lat = job_item.get("scan_lat")
+                    scan_lon = job_item.get("scan_lon")
 
                     top_candidates = []
                     for match in matches:
@@ -305,7 +427,7 @@ def process_s3_image(processor: FaceProcessor, bucket: str, key: str):
                         return
 
                     # Grant 12-hour temporary session for primary match
-                    grant_access_session(responder_id, primary_victim_id)
+                    grant_access_session(responder_id, primary_victim_id, scan_lat, scan_lon)
 
                     # Emit victim.identified Event
                     publish_emergency_event(
@@ -325,6 +447,8 @@ def process_s3_image(processor: FaceProcessor, bucket: str, key: str):
                                 "distance": primary_distance,
                                 "jobId": job_id,
                                 "totalCandidates": len(top_candidates),
+                                "lat": scan_lat,
+                                "lon": scan_lon,
                             },
                         },
                     )
@@ -369,6 +493,14 @@ def run_sqs_worker(processor: FaceProcessor, stop_event: threading.Event):
         return
 
     logger.info(f"Starting SQS worker polling on {QUEUE_URL}")
+    logger.info(
+        "AWS mode=%s sqs=%s s3=%s dynamodb=%s events=%s",
+        "LOCAL EMULATION" if LOCAL_AWS else "real AWS",
+        SQS_ENDPOINT_URL or "default", S3_ENDPOINT_URL or "default",
+        DYNAMO_ENDPOINT_URL or "default", ENDPOINT_URL or "default",
+    )
+
+    consecutive_failures = 0
 
     while not stop_event.is_set():
         try:
@@ -379,6 +511,7 @@ def run_sqs_worker(processor: FaceProcessor, stop_event: threading.Event):
                 VisibilityTimeout=120,
             )
 
+            consecutive_failures = 0
             messages = response.get("Messages", [])
             for msg in messages:
                 receipt_handle = msg["ReceiptHandle"]
@@ -409,7 +542,16 @@ def run_sqs_worker(processor: FaceProcessor, stop_event: threading.Event):
 
         except Exception as e:
             if not stop_event.is_set():
+                consecutive_failures += 1
                 logger.error(f"Error polling SQS: {e}")
+                # Poll hỏng liên tiếp nghĩa là worker không hề nhìn thấy queue — message nằm lại ở
+                # trạng thái Available và job đứng ở PENDING. Nói thẳng ra, đừng để nó trôi trong log.
+                if consecutive_failures in (5, 50) or consecutive_failures % 500 == 0:
+                    logger.error(
+                        "SQS unreachable for %d consecutive polls (endpoint=%s, queue=%s). "
+                        "No message can be received in this state.",
+                        consecutive_failures, SQS_ENDPOINT_URL or "default AWS", QUEUE_URL,
+                    )
                 time.sleep(5)
 
     logger.info("SQS worker stopped.")

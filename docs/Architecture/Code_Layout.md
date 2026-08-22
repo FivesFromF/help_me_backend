@@ -34,9 +34,10 @@ zip into **`infra/modules/lambda/`** (the `authorizer` also goes to `infra/modul
 Terraform in `infra/` consumes the zips from there — so a Terraform apply against a stale zip is a
 silent deploy of old code. Always `npm run build` before applying.
 
-`build.js` declares five functions, but only four handler directories exist: `audit-worker`,
-`grant-permission-worker`, `notification-worker`, `post-confirmation`. The fifth, `authorizer`, is
-skipped at build time by an `fs.existsSync` guard — its entry is a leftover, not a missing file.
+`build.js` declares four functions, but only three handler directories exist: `audit-worker`,
+`notification-worker`, `post-confirmation`. The fourth, `authorizer`, is skipped at build time by an
+`fs.existsSync` guard — its entry is a leftover, not a missing file. (`grant-permission-worker` was
+the fifth until 2026-08-22; see [[Architecture/EventBridge_Sync]].)
 
 Note the script split: `npm run build:server` is `tsc` alone and produces **no** Lambda zips and
 **no** Prisma client; `npm run build` is `prisma generate && tsc && node build.js`.

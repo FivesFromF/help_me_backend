@@ -162,8 +162,16 @@ auth: expect `401` where the in-process test suite returns `404`.
 ```bash
 cd src/services/ai-server
 pip install -r requirements.txt
-python main.py
+LOCAL_AWS_EMULATION=true python main.py     # PowerShell: $env:LOCAL_AWS_EMULATION="true"; python main.py
 ```
+
+> [!important] `LOCAL_AWS_EMULATION=true` is required when running on the host.
+> Without it `worker.py` targets **real AWS** — boto3 resolves the regional endpoints and asks the
+> credential chain for real keys. That is deliberate: the localhost endpoints used to be the
+> unconditional default, which is how the deployed Fargate worker spent hours polling itself in
+> silence (see [[Services/AI_Server]], "Endpoints and credentials"). Locally the mistake is loud —
+> the first poll fails immediately — which is the direction the failure should point.
+> `docker-compose.yaml` sets the flag for the composed `ai-server` already.
 
 `docker compose up -d ai-server` now runs the same worker with its endpoints wired (see
 [[Services/AI_Server]]): SQS, S3 and EventBridge come from the **host** stack of Step 2 via

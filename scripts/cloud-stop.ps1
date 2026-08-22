@@ -11,7 +11,18 @@ $writeService = "helpme-write-service"
 $readService = "helpme-read-service"
 $aiService = "helpme-ai-service"
 $rdsInstance = "helpme-db"
-$bastionId = "i-03edbd7d43f7aa022"
+
+# Bastion id comes from Terraform, not from a literal — see the note in cloud-start.ps1. The old
+# hardcoded id pointed at a replaced instance, so this script reported "Bastion Host stopping" while
+# the real one stayed up around the clock.
+function Get-BastionId {
+    $id = terraform -chdir="$(Join-Path $PSScriptRoot '..\infra')" output -raw bastion_instance_id
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($id)) {
+        Write-Host "    - Could not read bastion_instance_id from terraform output; skipping bastion." -ForegroundColor Yellow
+        return $null
+    }
+    return $id.Trim()
+}
 
 # 1. Stop ECS Tasks (Scale to 0)
 if ($Mode -eq "all" -or $Mode -eq "services") {
@@ -35,9 +46,12 @@ if ($Mode -eq "all" -or $Mode -eq "services") {
 
 # 3. Stop Bastion Host
 if ($Mode -eq "all" -or $Mode -eq "bastion") {
-    Write-Host "[*] Stopping Bastion Host ($bastionId)..." -ForegroundColor Cyan
-    aws ec2 stop-instances --instance-ids $bastionId | Out-Null
-    Write-Host "    - Bastion Host stopping."
+    $bastionId = Get-BastionId
+    if ($bastionId) {
+        Write-Host "[*] Stopping Bastion Host ($bastionId)..." -ForegroundColor Cyan
+        aws ec2 stop-instances --instance-ids $bastionId | Out-Null
+        Write-Host "    - Bastion Host stopping."
+    }
 }
 
 Write-Host "--- Selection ($Mode) is hibernating. ---" -ForegroundColor Green

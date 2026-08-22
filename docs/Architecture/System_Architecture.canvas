@@ -10,7 +10,7 @@
 		{"id":"node-ai-server","type":"text","text":"### AI Worker (SQS)\n- Python / PyTorch\n- 512-d Face Embeddings\n- Biometric vector matching","x":170,"y":390,"width":260,"height":140,"color":"6"},
 		{"id":"node-postgres","type":"text","text":"### PostgreSQL + pgvector\n- Managed via Prisma ORM\n- Citizens, Medical Records\n- Biometric face vectors","x":990,"y":100,"width":280,"height":160,"color":"2"},
 		{"id":"node-eventbridge","type":"text","text":"### AWS EventBridge\n- `CORE_SYSTEM_BUS`\n- `EMERGENCY_BUS`","x":990,"y":290,"width":280,"height":120,"color":"3"},
-		{"id":"node-lambdas","type":"text","text":"### AWS Lambda Workers\n- `notification-worker`\n- `audit-worker`\n- `grant-permission-worker`","x":990,"y":530,"width":280,"height":130,"color":"3"}
+		{"id":"node-lambdas","type":"text","text":"### AWS Lambda Workers\n- `notification-worker`\n- `audit-worker`\n- `post-confirmation`","x":990,"y":530,"width":280,"height":130,"color":"3"}
 	],
 	"edges":[
 		{"id":"edge-citizen-write","fromNode":"node-mobile-citizen","fromSide":"right","toNode":"node-write-server","toSide":"left","label":"Mutations / Auth"},

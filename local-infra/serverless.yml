@@ -126,18 +126,9 @@ functions:
             source:
               - helpme.backend
 
-  # ── Triggered by EMERGENCY_BUS: victim.identified → grant 1-hour DynamoDB session
-  grantPermissionWorker:
-    handler: ../dist/grant-permission-worker/index.main
-    events:
-      - eventBridge:
-          eventBus: helpme-emergency-bus
-          pattern:
-            source:
-              - helpme.backend
-              - helpme.ai-service
-            detail-type:
-              - victim.identified
+  # grantPermissionWorker removed 2026-08-22 with the Lambda itself — its handler path
+  # (../dist/grant-permission-worker/index.main) no longer builds, and access sessions are written
+  # synchronously by the scan route and the AI worker.
 
   # ── Triggered by EMERGENCY_BUS: victim.identified → email emergency contacts
   notificationWorker:

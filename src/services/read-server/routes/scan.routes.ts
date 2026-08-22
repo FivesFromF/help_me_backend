@@ -18,6 +18,12 @@ scanRoutes.post(
       const { userId: responderId, role: responderRole } = req.auth!;
       const body = req.body || {};
       const { method, tagId, qrId, hashId, imageBase64 } = body;
+      // Toạ độ nơi quét. Optional ở mọi phương thức: thiếu GPS không bao giờ chặn việc mở hồ sơ.
+      // Nhận cả `lat`/`lon` lẫn `latitude`/`longitude` để client không phải đoán tên trường.
+      const scanLocation = {
+        lat: body.lat ?? body.latitude,
+        lon: body.lon ?? body.longitude,
+      };
 
       // 1. NFC Method
       if (method === "NFC") {
@@ -62,7 +68,7 @@ scanRoutes.post(
           return;
         }
 
-        await grantAccessSession(responderId, tag.citizenId, "NFC");
+        await grantAccessSession(responderId, tag.citizenId, "NFC", scanLocation);
 
         await publishEmergencyEvent("victim.identified", {
           actorId: responderId,
@@ -76,7 +82,7 @@ scanRoutes.post(
             fullName: citizen?.fullName ?? null,
             emergencyContacts: citizen?.emergencyContacts ?? null,
           },
-          metadata: { tagId },
+          metadata: { tagId, ...scanLocation },
         });
 
         res.status(200).json({
@@ -130,7 +136,7 @@ scanRoutes.post(
           return;
         }
 
-        await grantAccessSession(responderId, qr.citizenId, "QR");
+        await grantAccessSession(responderId, qr.citizenId, "QR", scanLocation);
 
         await publishEmergencyEvent("victim.identified", {
           actorId: responderId,
@@ -142,7 +148,7 @@ scanRoutes.post(
             fullName: citizen?.fullName ?? null,
             emergencyContacts: citizen?.emergencyContacts ?? null,
           },
-          metadata: { qrId },
+          metadata: { qrId, ...scanLocation },
         });
 
         res.status(200).json({
@@ -184,6 +190,13 @@ scanRoutes.post(
             where: { citizenId: victim.id },
           });
 
+          if (await isComplained(responderId, victim.id)) {
+            res.status(403).json({ error: "Access to this citizen has been revoked following a complaint" });
+            return;
+          }
+
+          await grantAccessSession(responderId, victim.id, "FACE", scanLocation);
+
           await publishEmergencyEvent("victim.identified", {
             actorId: responderId,
             responderId,
@@ -194,18 +207,20 @@ scanRoutes.post(
               fullName: victim.fullName ?? null,
               emergencyContacts: victim.emergencyContacts ?? null,
             },
-            metadata: { distance: victim.distance, totalCandidates: matches.length },
+            metadata: { distance: victim.distance, totalCandidates: matches.length, ...scanLocation },
           });
 
           res.status(200).json({
             matchStatus: "MATCH_FOUND",
             matchesCount: matches.length,
             victim,
+            citizen: victim,
             record: record || null,
             topMatches: matches,
             accessGranted: true,
             expiresIn: SESSION_TTL_SECONDS,
           });
+          return;
         } else {
           res.status(200).json({
             matchStatus: "NO_MATCH",

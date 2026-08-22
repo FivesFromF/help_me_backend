@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { prisma } from "../../../shared/db";
 import { requireRole } from "../../../shared/middleware/auth";
+import { resolveAvatarUrl } from "../../../shared/services/s3.service";
 
 export const citizenRoutes = Router();
 
@@ -20,7 +21,10 @@ citizenRoutes.get(
         return;
       }
 
-      res.status(200).json({ profile });
+      // avatar_url lưu S3 key sau khi enroll khuôn mặt; ký presigned GET để client tải được.
+      res.status(200).json({
+        profile: { ...profile, avatarUrl: await resolveAvatarUrl(profile.avatarUrl) },
+      });
     } catch (err: any) {
       console.error("[citizen.routes] Error fetching profile:", err);
       res.status(500).json({ error: err.message || "Failed to fetch profile" });

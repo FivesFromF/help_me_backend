@@ -113,6 +113,14 @@ model AccessSession {
   /// Lý do nạn nhân đưa ra khi khiếu nại, và thời điểm khiếu nại.
   complaintReason String?   @map("complaint_reason")
   complainedAt    DateTime? @map("complained_at") @db.Timestamptz
+
+  /// Toạ độ nơi responder quét (NFC / QR / khuôn mặt) - trả lời "tìm thấy người này ở đâu".
+  ///
+  /// Nullable một cách có chủ đích: máy có thể từ chối quyền định vị, ở tầng hầm không bắt được
+  /// tín hiệu, hoặc hết thời gian chờ. Chặn một ca cấp cứu vì thiếu toạ độ là đánh đổi sai - hồ sơ
+  /// y tế quan trọng hơn việc biết chính xác vị trí. Kiểu String để khớp `emergency_reports`.
+  scanLat String? @map("scan_lat")
+  scanLon String? @map("scan_lon")
   reports     EmergencyReport[]
 
   /// Khiếu nại của nạn nhân về chính phiên truy cập này, nếu có.

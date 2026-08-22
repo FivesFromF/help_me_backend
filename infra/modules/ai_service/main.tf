@@ -168,7 +168,9 @@ resource "aws_ecs_service" "ai" {
 variable "project_name" {}
 variable "vpc_id" {}
 variable "public_subnet_ids" { type = list(string) }
-variable "app_tasks_sg_id" {}
+# Removed 2026-08-22: declared and passed but never referenced. The service runs in its own
+# aws_security_group.ai_tasks, so this argument made it look like the AI task shared the Express
+# tasks' database access when it had none. Ingress is now explicit — see ai_tasks_to_rds in main.tf.
 variable "execution_role_arn" {}
 variable "execution_role_name" {
   type    = string
@@ -221,4 +223,8 @@ variable "emergency_bus_arn" {
 # --- Outputs ---
 output "repository_url" {
   value = aws_ecr_repository.ai.repository_url
+}
+
+output "security_group_id" {
+  value = aws_security_group.ai_tasks.id
 }

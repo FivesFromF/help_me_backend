@@ -82,10 +82,32 @@ export async function hasActiveSession(responderId: string, victimId: string): P
  * Upsert on the (responder, victim) pair reproduces the old composite key: scanning the same person
  * again slides the window forward instead of accumulating rows.
  */
+/** Toạ độ nơi quét. Thiếu thì bỏ qua, không bao giờ làm hỏng lượt cấp quyền. */
+export type ScanLocation = { lat?: unknown; lon?: unknown };
+
+/**
+ * Chuẩn hoá toạ độ về String hoặc null. Nhận số lẫn chuỗi (client gửi kiểu nào cũng có), loại bỏ
+ * giá trị ngoài dải hợp lệ và NaN - một `"undefined"` lọt vào cột là im lặng vô dụng về sau.
+ */
+function normalizeLocation(location?: ScanLocation): { scanLat: string | null; scanLon: string | null } {
+  const toCoord = (value: unknown, limit: number): string | null => {
+    if (value === null || value === undefined || value === "") return null;
+    const n = Number(value);
+    if (!Number.isFinite(n) || Math.abs(n) > limit) return null;
+    return String(n);
+  };
+
+  return {
+    scanLat: toCoord(location?.lat, 90),
+    scanLon: toCoord(location?.lon, 180),
+  };
+}
+
 export async function grantAccessSession(
   responderId: string,
   victimId: string,
-  method?: string
+  method?: string,
+  location?: ScanLocation
 ): Promise<Date | null> {
   if (!responderId || !victimId) return null;
 
@@ -106,11 +128,21 @@ export async function grantAccessSession(
       return null;
     }
 
+    const { scanLat, scanLon } = normalizeLocation(location);
+
     await prisma.accessSession.upsert({
       where: { responderId_victimId: { responderId, victimId } },
-      create: { responderId, victimId, method, expiresAt, status: SESSION_ACTIVE },
+      create: { responderId, victimId, method, expiresAt, status: SESSION_ACTIVE, scanLat, scanLon },
       // Quét lại người cũ thì gia hạn và bật lại ACTIVE, kể cả khi phiên trước đã EXPIRED.
-      update: { method, expiresAt, grantedAt: new Date(), status: SESSION_ACTIVE },
+      // Toạ độ chỉ ghi đè khi lần quét này thực sự có: một lần quét không bắt được GPS không được
+      // phép xoá vị trí đã biết của lần trước.
+      update: {
+        method,
+        expiresAt,
+        grantedAt: new Date(),
+        status: SESSION_ACTIVE,
+        ...(scanLat !== null && scanLon !== null ? { scanLat, scanLon } : {}),
+      },
     });
 
     // Nhân tiện dọn các phiên đã hết hạn - không cần scheduler riêng.

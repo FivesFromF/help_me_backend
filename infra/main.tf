@@ -34,10 +34,9 @@ module "bastion" {
 
 module "eventbridge" {
   source                      = "./modules/eventbridge"
-  project_name                = var.project_name
-  audit_lambda_arn            = module.lambda.audit_lambda_arn
-  notification_lambda_arn     = module.lambda.notification_lambda_arn
-  grant_permission_lambda_arn = module.lambda.grant_permission_lambda_arn
+  project_name            = var.project_name
+  audit_lambda_arn        = module.lambda.audit_lambda_arn
+  notification_lambda_arn = module.lambda.notification_lambda_arn
 }
 
 module "lambda" {
@@ -93,12 +92,27 @@ module "sqs" {
   avatars_bucket_name = module.s3.bucket_name
 }
 
+# The AI worker writes face embeddings and access sessions straight to Postgres, so its task SG needs
+# the same 5432 path the Express tasks already have. Without it the container reaches SQS, S3 and
+# DynamoDB (public endpoints) but every DB call ends in `Connection timed out` — packets dropped, not
+# refused — and every job dies at "Database connection unavailable" after passing the whole AI
+# pipeline. Kept as a standalone rule so modules/rds does not have to depend on modules/ai_service,
+# which already depends on it for the endpoint.
+resource "aws_security_group_rule" "ai_tasks_to_rds" {
+  type                     = "ingress"
+  from_port                = 5432
+  to_port                  = 5432
+  protocol                 = "tcp"
+  security_group_id        = module.rds.security_group_id
+  source_security_group_id = module.ai_service.security_group_id
+  description              = "helpme-ai tasks to RDS 5432"
+}
+
 module "ai_service" {
   source                         = "./modules/ai_service"
   project_name                   = var.project_name
   vpc_id                         = module.vpc.vpc_id
   public_subnet_ids              = module.vpc.public_subnets
-  app_tasks_sg_id                = module.ecs.app_tasks_sg_id
   execution_role_arn             = module.ecs.execution_role_arn
   cluster_id                     = module.ecs.cluster_id
 

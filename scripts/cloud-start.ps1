@@ -11,13 +11,27 @@ $writeService = "helpme-write-service"
 $readService = "helpme-read-service"
 $aiService = "helpme-ai-service"
 $rdsInstance = "helpme-db"
-$bastionId = "i-03edbd7d43f7aa022"
+
+# Bastion id comes from Terraform, not from a literal. It was hardcoded to i-03edbd7d43f7aa022 until
+# 2026-08-23; that instance had been replaced, so start silently no-opped and cloud-stop.ps1 never
+# stopped the real bastion - it ran continuously. Reading the output also makes this work in a fork.
+function Get-BastionId {
+    $id = terraform -chdir="$(Join-Path $PSScriptRoot '..\infra')" output -raw bastion_instance_id
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($id)) {
+        Write-Host "    - Could not read bastion_instance_id from terraform output; skipping bastion." -ForegroundColor Yellow
+        return $null
+    }
+    return $id.Trim()
+}
 
 # 1. Start Bastion Host
 if ($Mode -eq "all" -or $Mode -eq "bastion") {
-    Write-Host "[*] Starting Bastion Host ($bastionId)..." -ForegroundColor Cyan
-    aws ec2 start-instances --instance-ids $bastionId | Out-Null
-    Write-Host "    - Bastion Host starting."
+    $bastionId = Get-BastionId
+    if ($bastionId) {
+        Write-Host "[*] Starting Bastion Host ($bastionId)..." -ForegroundColor Cyan
+        aws ec2 start-instances --instance-ids $bastionId | Out-Null
+        Write-Host "    - Bastion Host starting."
+    }
 }
 
 # 2. Start RDS Instance

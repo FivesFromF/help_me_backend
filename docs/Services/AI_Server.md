@@ -18,12 +18,36 @@
   5. **Face Search Mode**:
      - Executes PostgreSQL `pgvector` nearest-neighbor distance query (`<=>`) with `LIMIT 3` and distance threshold `< 0.35`.
      - Returns the **Top 3 matching candidates** with full profile and medical records.
-     - Saves results in DynamoDB (`helpme-scan-jobs`) with a 2-hour TTL.
+     - Saves results in DynamoDB (`helpme-scan-jobs`) with a 2-hour TTL (scans only — see enrolment below).
      - Grants a 1-hour temporary session in `helpme-access-sessions` for the primary match.
      - Dispatches `victim.identified` to EventBridge (`EMERGENCY_BUS`) for automated responder notifications.
   6. **Face Enrollment Mode**:
-     - Updates `citizens.face_embedding` in PostgreSQL with the normalized 512-float vector.
+     - Re-reads the job record to recover `citizen_id`, then updates `citizens.face_embedding` in
+       PostgreSQL with the normalized 512-float vector and sets `is_verified = true`, using
+       `RETURNING id` because the job's `citizen_id` may be a `cognito_id`.
+     - Then server-side-copies the image to **`avatars/<citizenId>.jpg`** and stores that key in
+       `citizens.avatar_url`. The copy is what lets `raw-uploads/` be expired by a lifecycle rule
+       without breaking every avatar. A failed copy leaves the previous avatar untouched and does
+       **not** fail the enrolment. Only enrolment does this; a `raw-scans/` image is a responder's
+       photo of a victim and must never become that person's profile picture.
+
+> [!warning] The avatar copy must never land under `raw-uploads/` or `raw-scans/`.
+> The EventBridge rule filters exactly those two prefixes (`infra/modules/sqs/main.tf`), so a copy to
+> `avatars/` raises no event. Copy into either watched prefix and the new object is processed as a
+> **scan**: a phantom job, an access session granted, `victim.identified` published, and emergency
+> contacts emailed about an incident that never happened.
+     - `avatar_url` holds a key, not a URL, because the bucket blocks all public access — a stored
+       `https://` object URL would `403` forever. Read paths sign it on the way out with
+       `resolveAvatarUrl()` (`shared/services/s3.service.ts`), which passes absolute URLs (seed data,
+       externally hosted images) through untouched and returns `null` rather than throwing.
      - Updates job status to `COMPLETED` in DynamoDB.
+     - **`COMPLETED` is only written when a row was actually updated.** A missing/expired job record
+       (no `citizen_id`) or an `UPDATE` matching zero rows both end as `FAILED` with an explicit
+       error. Until 2026-08-22 both cases returned `enrolled: true` with nothing written — the
+       client was told enrolment succeeded while `face_embedding` stayed null.
+     - Enrolment jobs carry a **25-hour TTL**, deliberately longer than the queue's 24-hour message
+       retention, so a job record can never expire out from under its own message. Scan jobs keep
+       the 2-hour TTL because their result payload holds the victim's medical record.
 
 ---
 
@@ -84,6 +108,41 @@ image build after OpenCV 5.0's release silently jumped major versions and every 
 
 This is not local-only: `requirements.txt` builds the **production** image as well. The permanent
 fix is converting the detector weights to ONNX, which needs its own accuracy validation.
+
+### ⚠️ Endpoints and credentials — `LOCAL_AWS_EMULATION`
+
+`worker.py` builds four boto3 clients (SQS, S3, DynamoDB, EventBridge). Until 2026-08-22 each one
+defaulted to a **localhost emulator address** when its env var was absent, and the module also ran
+`os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")` unconditionally. The Fargate task definition
+sets no endpoint variables, so the deployed worker:
+
+- polled `http://localhost:9324` — itself — while `AI_JOBS_QUEUE_URL` pointed at the real queue, and
+- wrote `AWS_ACCESS_KEY_ID=test` over the ECS task role, because env vars outrank the container
+  credential provider in boto3's chain.
+
+Both faults are silent. The task reports `RUNNING`, the service reaches steady state, and the loop
+logs `Error polling SQS` every five seconds — into a log group that did not exist, so nothing was
+visible anywhere. A `FACE_ENROLL` job sat at `PENDING` with its message `Available` and
+`NotVisible: 0` until someone read the queue counters by hand.
+
+The switch is now explicit:
+
+| `LOCAL_AWS_EMULATION` | Endpoints | Credentials |
+| :-- | :-- | :-- |
+| `true` | ElasticMQ / s3rver / DynamoDB Local / offline EventBridge | dummy `test` keys installed |
+| unset (cloud, **default**) | `None` → boto3 resolves the real regional endpoint | ECS task role, untouched |
+
+An explicit `SQS_ENDPOINT_URL` / `S3_ENDPOINT_URL` / `DYNAMODB_ENDPOINT` / `AWS_ENDPOINT_URL` still
+wins in either mode. The default had to become real AWS: a wrong endpoint locally fails on the first
+poll, while a wrong endpoint in cloud fails silently for as long as nobody looks.
+
+Startup now logs the resolved mode (`AWS mode=real AWS sqs=default …`), and a stalled poll loop
+escalates at 5 and 50 consecutive failures instead of repeating one line forever. If enrollment jobs
+stick at `PENDING`, read the queue counters first — `Available > 0` with `NotVisible: 0` means
+nothing is consuming, which is a worker-wiring fault, never a slow model.
+
+> The main queue keeps messages for **1 day** (`infra/modules/sqs/main.tf:17`), not the AWS default
+> of four. A backlog that outlives an outage is gone, and the client must re-upload.
 
 ### ⚠️ Nothing written to DynamoDB may be a Python `float`
 

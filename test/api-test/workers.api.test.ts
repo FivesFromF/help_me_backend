@@ -76,7 +76,6 @@ export async function runWorkerApiTests(
   process.env.SMTP_PASS = "";
   process.env.SMTP_FROM = "alerts@helpme.local";
 
-  const { main: grantMain } = await import("../../src/functions/grant-permission-worker/handler");
   const { main: auditMain } = await import("../../src/functions/audit-worker/handler");
   const { main: notifyMain } = await import("../../src/functions/notification-worker/handler");
 
@@ -141,7 +140,7 @@ export async function runWorkerApiTests(
       after.status,
       after.status === 200 && after.body?.citizen?.id === citizenId,
       after.status !== 200
-        ? "responder still denied after grant-permission-worker ran"
+        ? "responder still denied after the scan granted the session"
         : undefined
     );
   }
@@ -243,21 +242,10 @@ export async function runWorkerApiTests(
     );
   }
 
-  // ── WK-07 a malformed grant event must not write a session ──────────────────
-  {
-    const orphan = "responder-orphan-01";
-    await grantMain(envelope("victim.identified", { responderId: orphan }, EMERGENCY_BUS));
-    const got = await prisma.accessSession.findMany({
-      where: { responderId: orphan },
-    });
-    recordEffect(
-      results,
-      "Event without a victim writes no session",
-      "grant-permission-worker",
-      got.length === 0,
-      got.length === 0 ? undefined : "a session was granted with no victim"
-    );
-  }
+  // WK-07 was removed with grant-permission-worker on 2026-08-22. It fed a malformed
+  // victim.identified to that Lambda and asserted no session appeared — which stopped meaning
+  // anything once the handler became a no-op, and means nothing at all now that no consumer of
+  // that event writes sessions. Granting happens in the scan path, covered by WK-01 and WK-02.
 
   // ── Teardown ────────────────────────────────────────────────────────────────
   await prisma.accessSession

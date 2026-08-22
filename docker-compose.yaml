@@ -77,6 +77,9 @@ services:
     # "Could not connect to the endpoint URL: http://localhost:9324/" forever.
     environment:
       - AWS_REGION=ap-southeast-1
+      # Bật nhánh giả lập trong worker.py: dùng endpoint localhost + credentials giả. KHÔNG được
+      # set ở cloud — ở đó boto3 phải tự phân giải endpoint AWS thật và lấy credentials từ task role.
+      - LOCAL_AWS_EMULATION=true
       # S3RVER, not test: serverless-s3-local wraps s3rver, which registers exactly one key pair
       # (S3RVER/S3RVER, lib/models/account.js) and rejects every other key with 403 InvalidAccessKeyId
       # before checking the signature. custom.s3.accessKeyId does NOT change that — the plugin never

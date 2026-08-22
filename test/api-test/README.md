@@ -247,9 +247,9 @@ Every publish is awaited inside its handler, so the event is recorded before the
 | EV-06 | POST `/api/scan` (success) | `victim.identified` | **emergency** | victim is the target |
 | EV-07 | GET `/api/victim/:victimId` (granted) | `victim.record.accessed` | system | responder is the actor |
 
-EV-06 asserts the bus, not just the event: `grant-permission-worker` and `notification-worker` both
-subscribe to `victim.identified` on `helpme-emergency-bus`, so publishing it to the system bus would
-strand every downstream alert while the scan itself still returned `200`.
+EV-06 asserts the bus, not just the event: `notification-worker` subscribes to `victim.identified` on
+`helpme-emergency-bus`, so publishing it to the system bus would strand every downstream alert while
+the scan itself still returned `200`.
 
 `citizen.face.registered` (POST `/api/citizen/face`) is asserted **negatively** by F-03: the
 publish at `citizen.routes.ts:140` sits below a call that always throws, so it is unreachable
@@ -276,16 +276,19 @@ for a Lambda that may never fire, and it is the same handler code Terraform depl
 
 | ID | Worker | Given | Then |
 | :-- | :-- | :-- | :-- |
-| WK-01 | `grant-permission-worker` | `victim.identified` from a real scan | session row `responder#victim`, TTL ≈ 1h |
+| WK-01 | *(scan path)* | a real scan publishing `victim.identified` | session row `responder#victim`, TTL 12h |
 | WK-02 | *(chain)* | the session WK-01 wrote | `GET /api/victim/:id` flips **403 → 200** |
 | WK-03 | `audit-worker` | `victim.record.accessed` | row in `helpme-audit-logs` under the actor |
 | WK-04 | `audit-worker` | event with no `actorId` | row filed under actor `system` |
 | WK-05 | `notification-worker` | victim with an emergency contact | alert email to that contact |
 | WK-06 | `notification-worker` | victim id that does not exist | nothing sent |
-| WK-07 | `grant-permission-worker` | event with no victim | no session written |
 
-WK-02 is the end-to-end one: scan → event → worker → the responder can read the record. Remove the
-worker call and it returns 403, which is what makes the other six worth trusting.
+WK-07 (`grant-permission-worker`, event with no victim → no session written) was **removed on
+2026-08-22** along with the Lambda itself. It asserted that a malformed event granted nothing, which
+stopped meaning anything once no consumer of that event writes sessions at all.
+
+WK-02 is the end-to-end one: scan → session → the responder can read the record. Break the grant in
+`scan.routes.ts` and it returns 403, which is what makes the other five worth trusting.
 
 ⚠️ **`.env` has no `AUDIT_TABLE_NAME`.** The audit worker drops every event without it
 (`[audit] AUDIT_TABLE_NAME not set`), so the suite sets a default of `helpme-audit-logs` for its

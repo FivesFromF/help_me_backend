@@ -21,7 +21,6 @@ The backend uses a **CQRS (Command Query Responsibility Segregation)** pattern d
    - `post-confirmation`: Initializes citizen profile upon Cognito registration.
    - `audit-worker`: Immutable audit trail logging.
    - `notification-worker`: Real-time dispatching and email/SMS alerts.
-   - `grant-permission-worker`: Temporary emergency healthcare access grants.
 
 ---
 

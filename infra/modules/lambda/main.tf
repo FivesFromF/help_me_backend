@@ -144,53 +144,10 @@ resource "aws_lambda_permission" "notification_eventbridge" {
   source_arn    = var.identification_rule_arn
 }
 
-# Grant Permission Worker: EventBridge -> DynamoDB
-resource "aws_iam_role" "grant_permission_worker_role" {
-  name = "${var.project_name}-grant-permission-worker-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action    = "sts:AssumeRole"
-      Effect    = "Allow"
-      Principal = { Service = "lambda.amazonaws.com" }
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "grant_basic" {
-  role       = aws_iam_role.grant_permission_worker_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-}
-
-# grant-permission-worker used to hold dynamodb:PutItem on the access-sessions table. Sessions moved
-# to Postgres on 2026-08-22 and the worker is now a no-op, so it writes nothing and needs no data
-# permissions - only the basic execution role for CloudWatch logs, attached below.
-
-resource "aws_lambda_function" "grant_permission_worker" {
-  filename      = "${path.module}/grant_permission_worker.zip"
-  function_name = "${var.project_name}-grant-permission-worker"
-  role          = aws_iam_role.grant_permission_worker_role.arn
-  handler       = "index.main"
-  runtime       = "nodejs20.x"
-
-  environment {
-    variables = {
-    }
-  }
-
-  lifecycle {
-    ignore_changes = [filename]
-  }
-}
-
-resource "aws_lambda_permission" "grant_eventbridge" {
-  statement_id  = "AllowEmergencyBusInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.grant_permission_worker.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = var.identification_rule_arn
-}
+# grant-permission-worker was deleted on 2026-08-22. It wrote the access grant into DynamoDB until
+# sessions moved to Postgres; after that it was a no-op that could not have done the job anyway,
+# having no VPC configuration to reach RDS. Granting lives in read-server/routes/scan.routes.ts and
+# the Python AI worker, both inside the VPC and synchronous with the scan response.
 
 # =============================================
 # Post Confirmation Lambda: Auto-add new user to 'citizen' group
@@ -312,10 +269,6 @@ output "audit_lambda_arn" {
 output "notification_lambda_arn" {
   value = aws_lambda_function.notification_worker.arn
 }
-output "grant_permission_lambda_arn" {
-  value = aws_lambda_function.grant_permission_worker.arn
-}
-
 output "post_confirmation_lambda_arn" {
   value = aws_lambda_function.post_confirmation.arn
 }

@@ -186,8 +186,9 @@ export async function runEventApiTests(
   }
 
   // ── EV-06 POST /api/scan (success) → victim.identified on the EMERGENCY bus ─
-  // This is the one event that must not land on the system bus: grant-permission-worker and
-  // notification-worker both subscribe to victim.identified on helpme-emergency-bus.
+  // This is the one event that must not land on the system bus: notification-worker subscribes to
+  // victim.identified on helpme-emergency-bus. (grant-permission-worker did too, until it was
+  // deleted on 2026-08-22 — granting is synchronous inside the scan route now.)
   {
     clearEvents();
     const res = await performRequest(readApp, "POST", "/api/scan", responderHeaders, {

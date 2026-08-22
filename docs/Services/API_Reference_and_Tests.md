@@ -378,23 +378,25 @@ Two endpoints do not behave the way this reference otherwise implies. Both are d
 | 45 | `/api/scan` | `POST` | Events | `200` | Publishes `victim.identified` on the **emergency** bus |
 | 46 | `/api/victim/:victimId` | `GET` | Events | `200` | Publishes `victim.record.accessed` (system bus) |
 
-| 47 | `grant-permission-worker` | event | Workers | effect | `victim.identified` → 1-hour access session |
-| 48 | `/api/victim/:victimId` | `GET` | Workers | `200` | **Chain:** worker's session unlocks the record (403 → 200) |
+| 47 | scan path | event | Workers | effect | A real scan writes the **12-hour** access session |
+| 48 | `/api/victim/:victimId` | `GET` | Workers | `200` | **Chain:** that session unlocks the record (403 → 200) |
 | 49 | `audit-worker` | event | Workers | effect | System event lands in `helpme-audit-logs` |
 | 50 | `audit-worker` | event | Workers | effect | Actorless event filed under actor `system` |
 | 51 | `notification-worker` | event | Workers | effect | Emergency contact is emailed |
 | 52 | `notification-worker` | event | Workers | effect | Unknown victim sends nothing |
-| 53 | `grant-permission-worker` | event | Workers | effect | Event without a victim grants nothing |
+| ~~53~~ | — | — | — | — | **Retired 2026-08-22** with `grant-permission-worker`. Numbering is kept so earlier case numbers stay stable. |
 
-| 54 | `/api/upload-url` | `POST` | Async Jobs | `200` | Opens a `PENDING` `FACE_SCAN` job (TTL 2h) |
+| 54 | `/api/upload-url` | `POST` | Async Jobs | `200` | Opens a `PENDING` job — `FACE_SCAN` TTL 2h, `FACE_ENROLL` TTL 25h (must outlive the 24h queue retention). Optional `lat`/`lon` are stored on the job and become the scan location. |
 | 55 | `/api/upload-url` | `POST` | Async Jobs | `200` | `FACE_ENROLL` → `ENROLLMENT` under `raw-uploads/` |
 | 56 | `/api/upload-url` | `POST` | Async Jobs | `200` | Presigned URL is signed, expiring, key-scoped |
 | 57 | `/api/scan/jobs/:jobId` | `GET` | Async Jobs | `200` | Fresh job reports `PENDING` |
 | 58 | `/api/scan/jobs/:jobId` | `GET` | Async Jobs | `200` | Completed job surfaces the match result |
 | 59 | `/api/scan/jobs/:jobId` | `GET` | Async Jobs | `200` | Failed job surfaces the rejection reason |
 
-Row 48 is the end-to-end path the whole system exists for: scan → `victim.identified` →
-`grant-permission-worker` → the responder can read the victim's record.
+Row 48 is the end-to-end path the whole system exists for: scan → access session → the responder can
+read the victim's record. The grant is synchronous inside the scan route, so this chain no longer
+passes through EventBridge at all.
 
-Row 34 is the only failing check — it is a deliberate reproduction of the consent defect, not a
-flaky test. It turns green the moment `citizen.routes.ts:29-30` stop defaulting to `true`.
+Row 34 reproduces the consent defect (a partial edit silently granting consent). It failed by design
+until `citizen.routes.ts` stopped defaulting `consentRegulation` to `true` on 2026-08-22; it now
+passes, and a failure there means the defect is back.

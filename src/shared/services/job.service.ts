@@ -23,6 +23,11 @@ export interface ScanJobRecord {
   result?: any;
   error?: string;
   expires_at: number;
+
+  /** Where the responder was when they captured the image. Optional — the AI worker runs long after
+   *  the phone is gone, so this is the only chance to record it. Read back in worker.py. */
+  scan_lat?: string;
+  scan_lon?: string;
 }
 
 export async function createScanJob(job: ScanJobRecord): Promise<void> {

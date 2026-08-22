@@ -11,7 +11,6 @@ const authorizerModuleDir = path.join(__dirname, "infra", "modules", "authorizer
 const functions = [
   { name: "authorizer", entry: "authorizer/handler.ts", zipNames: ["authorizer.zip"], destDirs: [authorizerModuleDir, lambdaModuleDir] },
   { name: "audit-worker", entry: "audit-worker/handler.ts", zipNames: ["audit_worker.zip"], destDirs: [lambdaModuleDir] },
-  { name: "grant-permission-worker", entry: "grant-permission-worker/handler.ts", zipNames: ["grant_permission_worker.zip"], destDirs: [lambdaModuleDir] },
   { name: "notification-worker", entry: "notification-worker/handler.ts", zipNames: ["notification_worker.zip"], destDirs: [lambdaModuleDir] },
   { name: "post-confirmation", entry: "post-confirmation/handler.ts", zipNames: ["post_confirmation.zip"], destDirs: [lambdaModuleDir] },
 ];
