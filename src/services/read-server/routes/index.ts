@@ -6,6 +6,7 @@ import { victimRoutes } from "./victim.routes";
 import { adminRoutes } from "./admin.routes";
 import { credentialRoutes } from "./credentials.routes";
 import { reportRoutes } from "./reports.routes";
+import { historyRoutes } from "./history.routes";
 
 export const readRouter = Router();
 
@@ -19,5 +20,6 @@ readRouter.use(victimRoutes);
 readRouter.use(adminRoutes);
 readRouter.use(credentialRoutes);
 readRouter.use(reportRoutes);
+readRouter.use(historyRoutes);
 
 export default readRouter;
