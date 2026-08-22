@@ -15,9 +15,25 @@ citizenRoutes.put(
       const userId = req.auth!.userId;
       const body = req.body || {};
 
-      const updated = await prisma.citizen.update({
+      const email = body.email || req.auth?.email || `${userId}@helpme.local`;
+
+      const updated = await prisma.citizen.upsert({
         where: { cognitoId: userId },
-        data: {
+        create: {
+          cognitoId: userId,
+          email: email,
+          fullName: body.fullName || "",
+          phone: body.phone,
+          address: body.address,
+          cccdNumber: body.cccdNumber,
+          dateOfBirth: body.dateOfBirth ? new Date(body.dateOfBirth) : undefined,
+          gender: body.gender,
+          emergencyContacts: body.emergencyContacts,
+          isProfileUpdated: true,
+          firstDeclareProfile: body.firstDeclareProfile !== undefined ? body.firstDeclareProfile : true,
+          consentRegulation: body.consentRegulation !== undefined ? body.consentRegulation : false,
+        },
+        update: {
           fullName: body.fullName !== undefined ? body.fullName : undefined,
           phone: body.phone !== undefined ? body.phone : undefined,
           address: body.address !== undefined ? body.address : undefined,
@@ -57,10 +73,6 @@ citizenRoutes.put(
       res.status(200).json({ profile: updated });
     } catch (err: any) {
       console.error("[citizen.routes] Error updating profile:", err);
-      if (err.code === "P2025") {
-        res.status(404).json({ error: "Profile not found" });
-        return;
-      }
       res.status(500).json({ error: err.message || "Failed to update profile" });
     }
   }

@@ -130,8 +130,7 @@ start from `consentRegulation: false` regardless of suite order.
 | R-03 | PUT | `/api/citizen/profile` | consent is `false`, body sets only `phone` | **200** with consent still `false` — see note F |
 | R-04 | PUT | `/api/citizen/profile` | `consentRegulation: false` | **200**, stored as `false` |
 | R-05 | PUT | `/api/citizen/profile` | `x-role: admin` | **403** (route is citizen-only) |
-| R-06 | PUT | `/api/citizen/profile` | `x-role: staff` | **200** — fail-open, see note D |
-| R-07 | PUT | `/api/citizen/profile` | `x-cognito-id` with no citizen row | **404** `Profile not found` |
+| R-07 | PUT | `/api/citizen/profile` | `x-cognito-id` with no citizen row | **200** auto-provisions citizen row (upsert) |
 | R-08 | GET | `/api/citizen/profile` | `x-cognito-id` with no citizen row | **404** `Profile not found` |
 
 R-01 asserts against the database row rather than the echoed response, because the handler returns

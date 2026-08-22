@@ -4,6 +4,7 @@ import { CognitoJwtVerifier } from "aws-jwt-verify";
 export interface AuthContext {
   userId: string;
   role: "citizen" | "admin";
+  email?: string;
 }
 
 declare global {
@@ -54,10 +55,12 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
   // không cần token, không cần Cognito. Header chỉ được tin ở local.
   const headerId = req.headers["x-cognito-id"] as string | undefined;
   const headerRole = (req.headers["x-role"] as string | undefined)?.toLowerCase();
+  const headerEmail = req.headers["x-email"] as string | undefined;
   if (SKIP_AUTH && headerId) {
     req.auth = {
       userId: headerId,
       role: extractRole([headerRole ?? ""]),
+      email: headerEmail,
     };
     return next();
   }
@@ -74,6 +77,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
         req.auth = {
           userId: payload.sub,
           role: extractRole(groups),
+          email: (payload.email as string) || (payload["cognito:username"] as string) || undefined,
         };
         return next();
       } catch (err) {

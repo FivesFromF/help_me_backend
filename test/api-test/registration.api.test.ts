@@ -213,25 +213,34 @@ export async function runRegistrationApiTests(results: TestResult[]) {
       );
     }
 
-    // ── R-07: Declaring information for a citizen row that does not exist ───────
+    // ── R-07: Auto-provisioning citizen row on declaration if absent in DB (Upsert) ───
     {
       const res = await performRequest(
         writeApp,
         "PUT",
         PROFILE,
         { "x-cognito-id": unknownCognitoId, "x-role": "citizen" },
-        { fullName: "Ghost Citizen" }
+        { fullName: "Auto Provisioned Citizen", email: `${unknownCognitoId}@helpme.local` }
       );
+      const created = await prisma.citizen.findUnique({ where: { cognitoId: unknownCognitoId } });
+      const ok = res.status === 200 && created?.fullName === "Auto Provisioned Citizen";
+
       recordTest(
         results,
         SUITE,
-        "Reject declaration for non-existent citizen row",
+        "Auto-provision citizen row on profile declaration (upsert)",
         PROFILE,
         "PUT",
-        404,
+        200,
         res.status,
-        res.status === 404
+        ok,
+        ok ? undefined : `Failed to auto-provision citizen row: status=${res.status}`
       );
+
+      // Clean up the auto-provisioned test row
+      if (created) {
+        await prisma.citizen.deleteMany({ where: { id: created.id } });
+      }
     }
 
     // ── R-08: Reading a profile that was never registered ──────────────────────
