@@ -30,14 +30,23 @@ never mutate. See [[Architecture/CQRS_Pattern]].
 ## 📦 The Lambda build (`build.js`)
 
 `node build.js` bundles each `src/functions/<name>/handler.ts` with esbuild, zips it, and copies the
-zip into **`infra/modules/lambda/`** (the `authorizer` also goes to `infra/modules/authorizer/`).
-Terraform in `infra/` consumes the zips from there — so a Terraform apply against a stale zip is a
-silent deploy of old code. Always `npm run build` before applying.
+zip into **`infra/modules/lambda/`**. Terraform in `infra/` consumes the zips from there, and
+`.gitignore` excludes `*.zip` — the zips are build output, not repository content. Two consequences,
+one for each direction: a **fresh clone has no zips at all**, so `terraform apply` fails on a missing
+`filename`; an **old working tree has stale ones**, which apply silently as old code. Always
+`npm run build` before applying.
 
-`build.js` declares four functions, but only three handler directories exist: `audit-worker`,
-`notification-worker`, `post-confirmation`. The fourth, `authorizer`, is skipped at build time by an
-`fs.existsSync` guard — its entry is a leftover, not a missing file. (`grant-permission-worker` was
-the fifth until 2026-08-22; see [[Architecture/EventBridge_Sync]].)
+`build.js` declares exactly the three handler directories that exist: `audit-worker`,
+`notification-worker`, `post-confirmation`. (`grant-permission-worker` was a fourth until
+2026-08-22 — see [[Architecture/EventBridge_Sync]] — and an `authorizer` entry survived as a
+never-built leftover, guarded by `fs.existsSync`, until 2026-08-23.)
+
+> [!warning] Seven unreferenced zips lived here until 2026-08-23
+> `audit_archiver`, `cognito_create_auth`, `cognito_define_auth`, `cognito_verify_auth`,
+> `post_authentication`, `read_service`, `write_service` — artefacts of the earlier API-Gateway-era
+> stack. No `main.tf` ever named them, no source exists in this repo, and `node build.js` cannot
+> regenerate them; an older working tree may still hold copies. The general rule they illustrate:
+> a zip on disk is not evidence that a Lambda is deployed — `terraform state list` is the authority.
 
 Note the script split: `npm run build:server` is `tsc` alone and produces **no** Lambda zips and
 **no** Prisma client; `npm run build` is `prisma generate && tsc && node build.js`.
