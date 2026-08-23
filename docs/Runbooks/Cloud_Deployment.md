@@ -214,7 +214,7 @@ Migrations always target the primary.
 ## 🚀 Deploying
 
 ```bash
-# 1. Lambda zips - Terraform consumes checked-in artifacts, so this must run first
+# 1. Lambda zips - Terraform reads them off disk and git does not track them, so this must run first
 npm run build                     # prisma generate && tsc && node build.js
 
 # 2. Service images
@@ -278,6 +278,15 @@ the bucket does not exist, recreate them before anything else.
 >
 > Confirm with `aws sts get-caller-identity` before blaming your credentials. Same family as the
 > `.env` traps in [[Runbooks/Local_Testing]].
+
+> **Both Windows shells mangle CLI arguments, in different ways.** In Git Bash, MSYS path conversion
+> rewrites any value that looks like a Unix path: `/ecs/helpme-ai` reaches the AWS CLI as a Windows
+> path and fails the log-group name constraint
+> (`failed to satisfy constraint: [\.\-_/#A-Za-z0-9]+`), and CIDRs inside security-group-rule import
+> ids break the same way. Prefix the command with `MSYS_NO_PATHCONV=1`. In PowerShell, an unquoted
+> `-target=aws_security_group_rule.x` is split on the `.`, and Terraform then reports
+> `Invalid target "aws_security_group_rule"` — quote the whole token. Note also that `!` in the
+> Claude Code prompt runs **bash**, so `$env:VAR=$null` there is a silent no-op; bash needs `env -u`.
 
 > **IAM survives a regional teardown.** Deleting the stack's regional resources leaves IAM roles and
 > policies behind — IAM is global, so a region-scoped sweep of ECS/Lambda/RDS/ECR/Cognito/DynamoDB
