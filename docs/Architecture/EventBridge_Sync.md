@@ -15,6 +15,15 @@
 | **`audit-worker`** | `CORE_SYSTEM_BUS` | Records compliance actions, medical access events, and authentication changes. |
 | **`notification-worker`** | `EMERGENCY_BUS` | Sends emergency alerts via SMS/Email and pushes notifications to emergency contacts. |
 
+> **No Lambda here has `vpc_config`, and that is a constraint, not an oversight.**
+> All three reach regional public endpoints only — DynamoDB, SMTP, Cognito. A VPC-attached Lambda
+> loses default internet egress and needs a NAT gateway (~$32/month) or a VPC endpoint per service,
+> so joining the VPC would cost money *and* remove reach, to gain a database connection none of them
+> want. This is why `victim.identified` carries `fullName` and `emergencyContacts` **inline**: the
+> payload exists so `notification-worker` never has to query Postgres. Keep it that way — a consumer
+> that needs the database belongs in the VPC with the Express servers and the AI worker, which is
+> exactly the wall `grant-permission-worker` hit before it was deleted.
+
 > **The citizen row is created by the API, not by `post-confirmation`.**
 > `shared/services/provision.service.ts` upserts it on the first authenticated request, from the
 > `sub` claim - the same claim every lookup uses. The trigger keeps only Cognito-side work.
