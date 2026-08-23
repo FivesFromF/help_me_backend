@@ -44,11 +44,155 @@ service's broader `/api/v1/citizen/*`.
 
 ## 🗄️ Database topology
 
-One `db.t4g.micro` PostgreSQL instance, **Multi-AZ with a single standby**, `backup_retention_period = 7`.
+One `db.t4g.micro` PostgreSQL instance, **Multi-AZ with a single standby**, `backup_retention_period = 7`,
+**encrypted at rest** with the AWS-managed `aws/rds` key (`ap-southeast-1a` primary, `1b` standby).
 
 **The standby is not readable.** It serves no queries and exists only for automatic failover
 (~60–120s). Both servers therefore share one endpoint — the write server and the read server point
 at the same primary. Only a Multi-AZ DB *cluster* (three instances) has readable standbys.
+
+### Encrypting RDS at rest
+
+`storage_encrypted = true` with no `kms_key_id`, i.e. the AWS-managed `aws/rds` key. S3, DynamoDB
+and SQS were already encrypted by their service defaults; RDS was the one store holding medical
+records, CCCD numbers and face embeddings in the clear.
+
+> [!danger] Never flip this flag with `terraform apply` on a live instance.
+> `storage_encrypted` is ForceNew — Terraform destroys the instance and creates an **empty** one.
+> AWS offers no in-place toggle. `lifecycle { prevent_destroy = true }` on `aws_db_instance.main`
+> turns that plan into `Error: Instance cannot be destroyed` instead of a silent data loss, and
+> `skip_final_snapshot` is now `false`. Both stay after the migration; they are the guard, not a
+> temporary measure.
+
+The migration is manual: snapshot → copy **with** encryption → restore → swap identifiers. Encryption
+is applied by the *copy*, which is the only step that can introduce it.
+
+```bash
+for s in write read ai; do
+  aws ecs update-service --cluster helpme-cluster --service helpme-$s-service --desired-count 0
+done
+
+aws rds create-db-snapshot --db-instance-identifier helpme-db \
+  --db-snapshot-identifier helpme-db-preenc
+aws rds wait db-snapshot-completed --db-snapshot-identifier helpme-db-preenc
+
+aws rds copy-db-snapshot \
+  --source-db-snapshot-identifier helpme-db-preenc \
+  --target-db-snapshot-identifier helpme-db-enc \
+  --kms-key-id alias/aws/rds
+aws rds wait db-snapshot-completed --db-snapshot-identifier helpme-db-enc
+
+aws rds restore-db-instance-from-db-snapshot \
+  --db-instance-identifier helpme-db-new \
+  --db-snapshot-identifier helpme-db-enc \
+  --db-instance-class db.t4g.micro \
+  --db-subnet-group-name helpme-db-private-subnet-group \
+  --vpc-security-group-ids sg-0af615206dae78bfc \
+  --multi-az --no-publicly-accessible
+aws rds wait db-instance-available --db-instance-identifier helpme-db-new
+
+# Swap: the endpoint hostname follows the identifier
+aws rds modify-db-instance --db-instance-identifier helpme-db \
+  --new-db-instance-identifier helpme-db-old --apply-immediately
+aws rds wait db-instance-available --db-instance-identifier helpme-db-old
+aws rds modify-db-instance --db-instance-identifier helpme-db-new \
+  --new-db-instance-identifier helpme-db --apply-immediately
+aws rds wait db-instance-available --db-instance-identifier helpme-db
+```
+
+**Why the rename rather than repointing `DATABASE_URL`.** The endpoint is
+`<identifier>.<account-hash>.<region>.rds.amazonaws.com` and the hash is fixed per account and
+region, so renaming the restored instance to `helpme-db` reproduces the exact hostname already in
+every task definition and in `.env`. Master username and password survive the snapshot, so there is
+no credential rotation either. No application code, no task definition and no redeploy is involved —
+encryption at rest is invisible above the storage layer.
+
+> [!important] The rename does **not** carry Terraform state with it.
+> `aws_db_instance` is keyed in state by `DbiResourceId`, not by identifier, so after the swap state
+> still points at the **old, unencrypted** instance. The next plan then reads
+> `storage_encrypted = false -> true # forces replacement` and tries to destroy your database —
+> which is what `prevent_destroy` exists to stop. Re-point state at the new instance:
+>
+> ```bash
+> terraform state rm module.rds.aws_db_instance.main
+> terraform import module.rds.aws_db_instance.main helpme-db   # import takes the identifier
+> terraform plan -target=module.rds.aws_db_instance.main       # now in-place drift only
+> ```
+>
+> `state rm` changes nothing in AWS — it only makes Terraform forget the resource.
+
+What remains after the import is harmless in-place drift the restore introduced:
+`max_allocated_storage 0 -> 100`, missing tags, and config-only fields (`apply_immediately`,
+`skip_final_snapshot`, `final_snapshot_identifier`, `password`).
+
+Afterwards, restore the backup window if the restore reset it (it may carry over), then clean up —
+the old instance bills
+until deleted:
+
+```bash
+aws rds modify-db-instance --db-instance-identifier helpme-db \
+  --backup-retention-period 7 --apply-immediately
+aws rds delete-db-instance --db-instance-identifier helpme-db-old --skip-final-snapshot
+aws rds delete-db-snapshot --db-snapshot-identifier helpme-db-preenc
+```
+
+Bring the three ECS services back to `desired-count 1`, or run `./scripts/cloud-start.ps1`.
+
+**Security-group rules must all be standalone, never inline.** `aws_security_group.rds` declares no
+`ingress`/`egress` blocks; every rule is its own `aws_security_group_rule`. Mixing the two styles is
+not a preference — an inline block is treated as the *complete* rule set, so each apply deletes any
+rule declared elsewhere, including `aws_security_group_rule.ai_tasks_to_rds` in `infra/main.tf`. That
+silently cuts the AI worker off from Postgres again. The AI rule cannot move inline: `modules/rds`
+would then depend on `modules/ai_service`, which already depends on `rds` for the endpoint.
+
+Converting existing inline rules means importing them, since they already exist in AWS and a plain
+apply hits `InvalidPermission.Duplicate`. The id format is `<sg-id>_<type>_<protocol>_<from>_<to>_<source>`,
+with `all` for protocol `-1`:
+
+```bash
+terraform import 'module.rds.aws_security_group_rule.app_tasks_to_rds' 'sg-…_ingress_tcp_5432_5432_sg-…'
+terraform import 'module.rds.aws_security_group_rule.rds_egress'       'sg-…_egress_all_0_0_0.0.0.0/0'
+```
+
+**Verifying it is real.** `StorageEncrypted` is not a self-reported preference — encryption is a
+property of the underlying volumes, fixed at creation, which is exactly why it cannot be toggled in
+place. The behavioural proof is that a later **automated** snapshot comes out `Encrypted: true` with
+no `--kms-key-id` passed:
+
+```bash
+aws rds describe-db-snapshots --query "DBSnapshots[?SnapshotType=='automated'].[DBSnapshotIdentifier,Encrypted]" --output text
+aws kms describe-key --key-id <KmsKeyId> --query "KeyMetadata.[KeyManager,KeyState]" --output text  # AWS / Enabled
+```
+
+Encryption is **not retroactive**: automated snapshots taken before the migration stay unencrypted
+until the 7-day retention expires or the old instance is deleted, and a *manual* snapshot never
+expires at all — it survives instance deletion and bills until explicitly removed. The pre-migration
+manual snapshot is a plaintext copy of medical records; deleting it is a privacy step, not tidying.
+
+### Where the data physically lives
+
+Everything is in **`ap-southeast-1` — Singapore**. RDS (medical records, CCCD, face embeddings), both
+S3 buckets, DynamoDB, and the KMS key. So Vietnamese citizens' biometric and health data — both
+"sensitive personal data" under PDPD Decree 13/2023 — is stored outside Vietnam, which the decree
+treats as a cross-border transfer with its own assessment and notification obligations. AWS has no
+Vietnam region, so the options are a local provider, on-premises, or the transfer paperwork. Worth
+knowing before anyone calls this production-ready.
+
+Two scope facts that follow from it:
+
+- **KMS keys are regional.** `alias/aws/rds` exists only in `ap-southeast-1`, and an AWS-managed key
+  cannot be shared across regions — so an encrypted snapshot copied to another region for DR cannot
+  be restored there. Cross-region DR is the one concrete argument for a customer-managed key.
+- **S3 bucket names are global, data is regional.** `helpme-avatars-mndkh` and
+  `helpme-terraform-state-xyz` carry suffixes because the namespace is worldwide. A fork cannot reuse
+  them: `modules/s3` generates a `random_suffix` for the avatars bucket, but the state bucket in
+  `providers.tf` is hardcoded and has to be renamed by hand.
+
+**What this does and does not buy.** It defends against a stolen disk or a snapshot shared to the
+wrong account. It does nothing about a leaked password, an over-broad IAM role, or a bug returning
+the wrong citizen's record — the application sees plaintext by design. `DATABASE_URL` still sits in
+plaintext in the ECS task definitions, readable via `ecs:DescribeTaskDefinition`; moving it to
+Secrets Manager is the larger real-world win and is still outstanding.
 
 A read replica was built and then removed on 2026-08-22 in favour of Multi-AZ: availability beat
 read offload, since one 0.25-vCPU read task never came close to saturating the primary, and a
