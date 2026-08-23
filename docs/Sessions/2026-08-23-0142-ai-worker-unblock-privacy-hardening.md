@@ -1,9 +1,9 @@
 # Session: 23-08-2026 01:42 - ai-worker-unblock-privacy-hardening
 
 ## Quick Reference
-**Topics:** ai worker, SQS, boto3 endpoint_url, ECS task role, security group, RDS connection timeout, face enrolment, avatar_url, presigned URL, S3 copy, scan GPS, access_sessions, complaint suppression, CCCD masking, grant-permission-worker removal, terraform apply, deploy.ps1, bastion
+**Topics:** ai worker, SQS, boto3 endpoint_url, ECS task role, security group, RDS connection timeout, face enrolment, avatar_url, presigned URL, S3 copy, scan GPS, access_sessions, complaint suppression, CCCD masking, grant-permission-worker removal, terraform apply, deploy.ps1, bastion, KMS, RDS encryption at rest, snapshot copy migration, terraform state rm/import, DbiResourceId, inline vs standalone security group rules, aws/rds managed key, service scope regional global zonal, data residency
 **Projects:** `help_me_backend` — ai-server (Python), read-server, write-server, `infra/` Terraform, `scripts/`
-**Outcome:** The deployed face pipeline works end to end for the first time — enrolment writes an embedding and an avatar, a scan matches it. Along the way: two silent production faults fixed, `grant-permission-worker` deleted, GPS captured on every scan method, and CCCD masked from everyone but its owner.
+**Outcome:** The deployed face pipeline works end to end for the first time — enrolment writes an embedding and an avatar, a scan matches it. Along the way: two silent production faults fixed, `grant-permission-worker` deleted, GPS captured on every scan method, and CCCD masked from everyone but its owner. Then RDS was migrated to encryption at rest with the AWS-managed `aws/rds` key, on the same endpoint, with no application change — and two Terraform state hazards found in the process.
 
 ## Decisions Made
 - **`LOCAL_AWS_EMULATION` opt-in, real AWS by default** for the AI worker's boto3 endpoints and dummy credentials — beat keeping localhost defaults. A wrong endpoint locally fails on the first poll; a wrong endpoint in cloud fails silently for hours. The failure should point at the loud direction.
@@ -15,6 +15,10 @@
 - **Sessions granted for every returned face candidate**, but `victim.identified` fires for the **primary only** — granting is accountability, alerting is a claim about reality, and only one person is actually lying there. Publishing for candidates 2 and 3 would alert two uninvolved families.
 - **CCCD masked everywhere except the owner's own profile.** Masking guards one person's identity from another; against the subject it protects nobody and denies them their own data.
 - **`grant-permission-worker` deleted, not left as a no-op.** Its own comment claimed it was kept so the EventBridge rule had a live target — but the rule also targets `notification-worker`, so that reason did not hold. A Lambda named "grant-permission" that grants nothing is worse than useless.
+- **AWS-managed `aws/rds` key, not a CMK**, for RDS encryption. Beat a customer-managed key: same encryption, same compliance position, no cost, and impossible to lose — disabling or deleting a CMK makes the database and every snapshot permanently unreadable. Given up: an auditable key policy and the ability to revoke, which is the argument for a CMK if biometrics ever need it under PDPD.
+- **Guard the Terraform before touching AWS.** `storage_encrypted = true` + `prevent_destroy` + `skip_final_snapshot = false` were committed *first*, so the destructive plan errored instead of running. Beat migrating first and editing config after, which leaves a window where any `apply` destroys the database.
+- **Rename the restored instance rather than repointing `DATABASE_URL`** — reproduces the identical endpoint hostname, so no task definition, `.env`, or redeploy changes. Beat accepting the new endpoint and editing it in five places.
+- **Every rule on the RDS security group is a standalone `aws_security_group_rule`.** Beat keeping inline `ingress` blocks: inline is treated as the complete set, so it deletes the AI worker's rule on every apply. The AI rule cannot move inline without creating an `rds` ↔ `ai_service` module cycle.
 - **Terraform for the SG rule, not `aws ec2 authorize-security-group-ingress`** — a hand-made rule leaves state out of sync and the next `terraform apply` fails on `InvalidPermission.Duplicate`.
 
 ## Key Learnings
@@ -32,10 +36,27 @@
 - **`i-03edbd7d43f7aa022` in `cloud-start/stop.ps1` did not exist** — `cloud-stop.ps1` had been "stopping" a deleted instance while the real bastion `i-0a17d690227c2fc48` ran continuously since 2026-08-22 03:07 UTC.
 - **`!` in the Claude Code prompt runs bash, not PowerShell** — `$env:VAR=$null` is a no-op there, so `.env`'s `AWS_ACCESS_KEY_ID=test` reached Terraform and produced `InvalidClientTokenId` twice. Bash needs `env -u`.
 - **PowerShell splits `-target=aws_security_group_rule.x`** unless the whole token is quoted; Terraform then reports `Invalid target "aws_security_group_rule"`.
+- **`aws_db_instance` is keyed in Terraform state by `DbiResourceId`, not by identifier.** After the rename swap, state still pointed at the old plaintext instance (`db-C6LNNKDVS5ODXIGCPOQR56TU64`) and planned `storage_encrypted = false -> true # forces replacement`. `prevent_destroy` caught it. Fix: `terraform state rm` then `terraform import <addr> helpme-db` — import takes the *identifier*.
+- **Inline and standalone security-group rules cannot coexist.** An inline `ingress` block is the complete rule set, so Terraform deletes anything declared elsewhere. Converting requires `terraform import` of the existing rules (`<sg-id>_<type>_<protocol>_<from>_<to>_<source>`, `all` for `-1`), because a plain apply hits `InvalidPermission.Duplicate`.
+- **`copy-db-snapshot --kms-key-id` is the only step that can introduce encryption.** You cannot encrypt an instance or a snapshot in place; the copy reads plaintext and writes ciphertext, and everything restored from it inherits.
+- **A restore inherits almost nothing about placement.** `--multi-az`, `--vpc-security-group-ids`, `--db-subnet-group-name`, `--no-publicly-accessible` must all be passed again. Omit `--multi-az` and you silently get a single-AZ database that looks correct in every other respect. Tags and `backup_retention_period` did carry over.
+- **Encryption is not retroactive, and manual snapshots never expire.** Automated snapshots taken before the migration stay unencrypted until retention lapses or their instance is deleted; a *manual* snapshot survives instance deletion and bills until explicitly removed. The pre-migration manual snapshot is a plaintext copy of medical records.
+- **The behavioural proof of encryption is a later automated snapshot coming out `Encrypted: true`** with no `--kms-key-id` passed. The API flag is authoritative regardless — encryption is a property of the underlying volumes, fixed at creation, which is exactly why it cannot be toggled in place.
+- **The `aws/rds` key is created by AWS, not by this stack.** `KeyManager: AWS`, `alias/aws/rds`, no `aws_kms_key` resource anywhere in `infra/`. It is free, undeletable, and shared by everything in the account/region using default RDS encryption. KMS keys are **regional**, so a cross-region snapshot copy for DR cannot use it.
+- **No Lambda in this stack has `vpc_config`, deliberately.** `audit-worker` (DynamoDB), `notification-worker` (SMTP) and `post-confirmation` (Cognito) all reach regional public endpoints; a VPC-attached Lambda loses default egress and needs a NAT gateway (~$32/month). This is why `victim.identified` carries `fullName` and `emergencyContacts` inline — so the notifier never queries Postgres.
+- **S3 bucket *names* are global, data is regional.** `helpme-avatars-mndkh` and `helpme-terraform-state-xyz` carry suffixes because the namespace is worldwide — a fork cannot reuse them. Both buckets are in `ap-southeast-1`, i.e. Singapore: Vietnamese citizens' biometric and health data is stored outside Vietnam, which PDPD Decree 13/2023 treats as a cross-border transfer.
+- **`aws rds wait` dies on a dropped connection** (`Connection was closed before we received a valid response`). An `until` loop of short `describe-db-instances` calls survives it; each iteration is a fresh request.
+- **MSYS path conversion mangles CLI arguments in Git Bash** — `/ecs/helpme-ai` became a Windows path (`failed to satisfy constraint: [\.\-_/#A-Za-z0-9]+`), and CIDR strings in import ids need quoting. `MSYS_NO_PATHCONV=1` fixes it.
 - **`terraform.tfvars` sets `ai_internal_secret`, which no `variable` block declares** — dead config, matching the docs' note that `AI_INTERNAL_SECRET` / `AI_SERVER_URL` are read by no code.
 
 ## Pending Tasks
-- [ ] Full `terraform apply` — destroys the 5 `grant-permission-worker` resources and creates `module.ecs.aws_cloudwatch_log_group.services`, which is why read/write server logs are still unreadable. Plan reviewed: `2 to add, 2 to change, 5 to destroy`. Eyeball the unrelated `module.auth.aws_cognito_identity_provider.google` in-place update first.
+- [x] ~~Full `terraform apply`~~ — done. `helpme-grant-permission-worker` returns `Function not found`, and both `/ecs/helpme-ai` and `/ecs/helpme-services` exist, so read/write server logs are readable again.
+- [ ] Apply the remaining plan: `0 to add, 5 to change, 0 to destroy` — RDS in-place drift plus three security-group-rule descriptions. The fifth, `module.auth.aws_cognito_identity_provider.google`, is unrelated drift that re-pushes the Google IdP config from `terraform.tfvars`; read that diff before approving, it touches sign-in.
+- [ ] **Run one face scan to prove `face_embedding` survived the snapshot/restore.** Everything verified so far shows the *instance* is healthy, not the *data*.
+- [ ] Delete the manual snapshot `helpme-db-enc` once that scan passes — it is encrypted, so not a privacy issue, but manual snapshots never expire and bill until removed. It is currently the only restore point that does not depend on a live instance.
+- [ ] Commit `infra/modules/rds/main.tf` (encryption, `prevent_destroy`, inline→standalone SG rules) and the `Cloud_Deployment.md` runbook section. The SG conversion deserves its own commit with the reason spelled out.
+- [ ] Consider `rds.force_ssl = 1` in a custom parameter group — the instance is on `default.postgres16`, which does not force TLS. At-rest and in-transit are separate controls.
+- [ ] Data residency: both S3 buckets and RDS are in `ap-southeast-1` (Singapore). For a Vietnamese health system this is a PDPD cross-border transfer question with no AWS-region answer.
 - [ ] Short TTL for avatar presigned URLs (60–300s) so a revoked access cannot keep serving the photo for an hour. Needs a separate TTL from the shared `getPresignedDownloadUrl`.
 - [ ] Decide whether a face scan must always return **two** candidates. Today it returns *up to* 3 — the `< 0.35` threshold filters before `LIMIT`, and a real production scan returned `matchesCount: 1`. Guaranteeing two means moving the threshold out of the `WHERE` and into a confidence label.
 - [ ] `scan.routes.ts` sync FACE branch still has the old single-candidate complaint check. Unreachable today (`extractFaceFeature` throws without `AI_LAMBDA_NAME`), but it returns with the path if revived.
@@ -195,3 +216,60 @@ Unmasked both own-profile paths, kept the guard, deployed `read` + `write`. Veri
 **User:** `/commit`
 
 Most of the session was already committed (`153ff4f`, `152ace3`). Two new commits: `e7f533a` (CCCD masking) and `6e8684d` (per-candidate complaints + masked job results). `worker.py` genuinely served both groups; kept whole and named both concerns in the subject rather than hiding one.
+
+**User:** give me how you do the kms
+
+Audited what was already encrypted (S3 `AES256`, DynamoDB AWS-owned, SQS `SqsManagedSseEnabled`) and found RDS `StorageEncrypted: false` — the only store holding medical records, CCCD and embeddings. Ranked Secrets Manager for `DATABASE_URL` above it, since the DB password is readable via `ecs:DescribeTaskDefinition`.
+
+**User:** i want to enable kms-based encryption on rds only → *(chose the AWS-managed key)*
+
+Set `storage_encrypted = true`, `skip_final_snapshot = false`, `lifecycle { prevent_destroy = true }`. Verified the guard fires:
+
+```
+# module.rds.aws_db_instance.main must be replaced
+Error: Instance cannot be destroyed
+```
+
+**User:** does it change code? → **teach me 1**
+
+No `src/` change — encryption is below the storage layer. Walked the migration phase by phase.
+
+**User:** *(ran the copy in bash with PowerShell backticks)* `bash: --source-db-snapshot-identifier: command not found`
+
+Backticks are command substitution in bash; supplied one-line and `\`-continued forms.
+
+**User:** *(copy + restore output)*
+
+`Encrypted: true` on `helpme-db-enc`; restore created `helpme-db-new` with `StorageEncrypted: true`, correct SG and subnet group. **Caught that the ECS services were still `1/1`** — Phase 0 had been skipped, so the DB was live and taking writes after the 19:13:02Z snapshot. S3 showed nothing newer than 18:34:40Z, so no enrolment or scan was lost.
+
+**User:** *(`aws rds wait` failed)* `Connection was closed before we received a valid response from endpoint URL`
+
+Client-side connection drop, not a migration failure. Replaced the waiter with an `until` loop of short requests.
+
+**User:** *(swap completed)* `True  arn:aws:kms:...  helpme-db.choikiwi4kk6...  True`
+
+Confirmed at the physical level: `helpme-db` = `db-VBIA2I7O24L3R5BRK5ZDV75ZDE` (encrypted), `helpme-db-old` = `db-C6LNNKDVS5ODXIGCPOQR56TU64` (plaintext).
+
+**User:** *(targeted plan)* `storage_encrypted = false -> true # forces replacement` … `Error: Instance cannot be destroyed`
+
+**Corrected my own earlier claim.** State is keyed by `DbiResourceId`, not identifier, so it still pointed at the old instance. `state rm` + `import helpme-db` fixed it; the remaining diff became in-place drift. Also spotted the plan queuing a **delete of `ai_tasks_to_rds`** — the inline-vs-standalone conflict I had introduced. Converted the RDS group's inline rules to standalone resources; plan went to `3 to add, 1 to change, 0 to destroy`, then the three were imported.
+
+**User:** what next → how to check that it is real encryption enable
+
+Verified three ways: API flag (authoritative — encryption is a volume property fixed at creation), KMS key identity (`KeyManager: AWS`, `alias/aws/rds`, `Enabled`), and behavioural proof — `rds:helpme-db-new-2026-08-23-05-24` came out `Encrypted: True` unprompted. Flagged three pre-migration automated snapshots still `Encrypted: False`.
+
+**User:** do we need delete manual snap shots? → does the current db is multi=az → that key you create by your own huh?
+
+Manual snapshots never expire, unlike automated ones. `helpme-db-preenc` was already deleted, `helpme-db-old` was `deleting`. Multi-AZ confirmed `ap-southeast-1a` / `1b`. The KMS key was **not** created by us — `KeyManager: AWS`, and `grep` found no `aws_kms_key` resource in `infra/`.
+
+**User:** the lambda is no vpc config huh? → so they are reiongale, arent they? → dynamodb?, kms, ecr, eventbridge... what scoe are they → s3 aslso
+
+No Lambda has `vpc_config`, deliberately. Mapped service scopes: global (IAM, CloudFront, S3 bucket names), regional (DynamoDB, KMS, ECR, EventBridge, SQS, Lambda, ECS, Cognito, S3 data), zonal (RDS instance, bastion, subnets). Flagged the KMS-is-regional DR trap and Singapore data residency under PDPD.
+
+**User:** s3 upload images --> lambda --> sqs --> ecs ai task right?
+
+Corrected: there is **no Lambda** in that path. `S3 → EventBridge (prefix-filtered rule) → SQS → ECS Fargate`. Lambdas consume the events the worker *emits* afterwards.
+
+**User:** give me the full flow u have done to apply kms to enable encryption on db
+
+Wrote the ten-phase flow and **fixed the runbook**, which still carried my wrong claim that state survives the rename.
