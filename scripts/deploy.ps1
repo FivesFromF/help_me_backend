@@ -22,7 +22,6 @@ $ECR_URL = "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
 # Mapping Lambda Name -> Code Directory & Zip
 $LAMBDA_MAP = @{
-    "authorizer"        = @{ zip = "infra/modules/authorizer/authorizer.zip"; func = "helpme-authorizer" }
     "post-confirmation" = @{ zip = "infra/modules/lambda/post_confirmation.zip"; func = "helpme-post-confirmation" }
     "audit"            = @{ zip = "infra/modules/lambda/audit_worker.zip"; func = "helpme-audit-worker" }
     "notification"     = @{ zip = "infra/modules/lambda/notification_worker.zip"; func = "helpme-notification-worker" }
@@ -108,7 +107,7 @@ try {
                 Build-Push-Service $Name
             }
             "lambda" {
-                if (-not $Name) { throw "Thiếu tham số -Name (authorizer|post-confirmation|audit|notification|grant)" }
+                if (-not $Name) { throw "Thiếu tham số -Name (post-confirmation|audit|notification)" }
                 Build-Push-Lambda $Name
             }
             default {
