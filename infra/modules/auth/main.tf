@@ -88,7 +88,10 @@ resource "aws_cognito_identity_provider" "google" {
     client_secret                 = var.google_client_secret
     attributes_url                = "https://people.googleapis.com/v1/people/me?personFields="
     attributes_url_add_attributes = "true"
-    authorize_url                 = "https://accounts.google.com/o/oauth2/v2/auth?prompt=select_account"
+    # Cognito strips any query string from authorize_url on write, so "?prompt=select_account" here
+    # never reached Google and made every single `terraform plan` show this provider as changed.
+    # Force the account chooser from the client's authorize request instead, not from the IdP config.
+    authorize_url                 = "https://accounts.google.com/o/oauth2/v2/auth"
     token_request_method          = "POST"
     token_url                     = "https://www.googleapis.com/oauth2/v4/token"
     oidc_issuer                   = "https://accounts.google.com"

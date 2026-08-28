@@ -14,6 +14,28 @@ resource "aws_ecr_repository" "ai" {
   }
 }
 
+# Every `deploy.ps1 -Target ai` pushes a new ~3.2 GB image (torch, mediapipe, model weights) and
+# leaves the previous one untagged but billed. Three is enough to roll back through; the app
+# repository keeps ten because its images are a hundred times smaller.
+resource "aws_ecr_lifecycle_policy" "ai" {
+  repository = aws_ecr_repository.ai.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep last 3 images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 3
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
 # --- Security Group for AI Worker (Egress Only) ---
 resource "aws_security_group" "ai_tasks" {
   name        = "${var.project_name}-ecs-ai-sg"
@@ -157,6 +179,11 @@ resource "aws_ecs_service" "ai" {
     subnets          = var.public_subnet_ids
     security_groups  = [aws_security_group.ai_tasks.id]
     assign_public_ip = true
+  }
+
+  # See the note in modules/ecs: hibernation sets this to 0 and Terraform must not undo it.
+  lifecycle {
+    ignore_changes = [desired_count]
   }
 
   tags = {

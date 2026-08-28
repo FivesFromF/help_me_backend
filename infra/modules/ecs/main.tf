@@ -145,45 +145,10 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
-# --- Cloud Map Service Registrations (No ALB) ---
-
-resource "aws_service_discovery_service" "write" {
-  name = "write"
-
-  dns_config {
-    namespace_id = var.service_discovery_namespace_id
-
-    dns_records {
-      ttl  = 60
-      type = "A"
-    }
-
-    routing_policy = "MULTIVALUE"
-  }
-
-  health_check_custom_config {
-    failure_threshold = 1
-  }
-}
-
-resource "aws_service_discovery_service" "read" {
-  name = "read"
-
-  dns_config {
-    namespace_id = var.service_discovery_namespace_id
-
-    dns_records {
-      ttl  = 60
-      type = "A"
-    }
-
-    routing_policy = "MULTIVALUE"
-  }
-
-  health_check_custom_config {
-    failure_threshold = 1
-  }
-}
+# Cloud Map (the helpme.local namespace and the write/read registrations) was removed on
+# 2026-08-24: nothing in src/ ever resolved it. The two servers do not call each other - they
+# coordinate through EventBridge - and the AI worker is an SQS consumer with no HTTP surface.
+# It billed a private hosted zone plus a per-registered-task fee for a name nobody looked up.
 
 # --- CloudWatch Logs ---
 resource "aws_cloudwatch_log_group" "services" {
@@ -306,8 +271,11 @@ resource "aws_ecs_service" "write" {
     container_port   = 8080
   }
 
-  service_registries {
-    registry_arn = aws_service_discovery_service.write.arn
+  # scripts/cloud-stop.ps1 scales this to 0 to stop the bill, which Terraform then reads as drift
+  # and "corrects" back to 1 on the next apply - silently restarting a stack you meant to hibernate.
+  # desired_count is operational state, not configuration; cloud-start.ps1 owns it.
+  lifecycle {
+    ignore_changes = [desired_count]
   }
 
   tags = {
@@ -334,8 +302,9 @@ resource "aws_ecs_service" "read" {
     container_port   = 8080
   }
 
-  service_registries {
-    registry_arn = aws_service_discovery_service.read.arn
+  # See the note on the write service: hibernation sets this to 0 and Terraform must not undo it.
+  lifecycle {
+    ignore_changes = [desired_count]
   }
 
   tags = {
@@ -348,7 +317,6 @@ resource "aws_ecs_service" "read" {
 variable "project_name" {}
 variable "vpc_id" {}
 variable "subnet_ids" {}
-variable "service_discovery_namespace_id" {}
 variable "system_bus_name" {}
 variable "system_bus_arn" {}
 variable "emergency_bus_name" {}
@@ -378,14 +346,6 @@ variable "audit_table_name" {}
 
 variable "avatars_bucket_name" {}
 variable "avatars_bucket_arn" {}
-
-output "write_service_discovery_arn" {
-  value = aws_service_discovery_service.write.arn
-}
-
-output "read_service_discovery_arn" {
-  value = aws_service_discovery_service.read.arn
-}
 
 output "app_tasks_sg_id" {
   value = aws_security_group.app_tasks.id

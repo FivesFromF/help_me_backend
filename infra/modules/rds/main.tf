@@ -92,15 +92,20 @@ resource "aws_db_instance" "main" {
   final_snapshot_identifier = "${var.project_name}-db-final"
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 
-  # Multi-AZ with a single standby: RDS keeps a synchronous copy in a second availability zone and
-  # fails over to it automatically. The standby is NOT readable - it serves no queries. That is the
-  # difference from a read replica, and the reason both servers share one endpoint below.
-  multi_az = true
+  # Multi-AZ keeps a synchronous standby in a second availability zone and fails over to it
+  # automatically. The standby is NOT readable - it serves no queries. That is the difference from a
+  # read replica, and the reason both servers share one endpoint below.
+  #
+  # Off by default because a standby costs the same as the primary and this stack is sized for
+  # demonstration. Toggling it is an in-place modify on a live instance (several minutes, one brief
+  # failover-style interruption); the endpoint hostname does not change either way.
+  multi_az = var.multi_az
 
-  # Required for Multi-AZ, and the provider default here is 0 (disabled).
+  # Not required for a single-AZ instance, but kept at 7 days: it is what makes point-in-time
+  # recovery possible, and it is the only automatic backup this stack has.
   backup_retention_period = 7
 
   tags = {
@@ -114,6 +119,12 @@ variable "subnet_ids" {}
 variable "db_password" {}
 variable "app_tasks_sg_id" {}
 variable "bastion_sg_id" {}
+
+# Set true before a demo or a graded run if the standby is worth its cost that day.
+variable "multi_az" {
+  type    = bool
+  default = false
+}
 
 output "cluster_endpoint" {
   value = aws_db_instance.main.address
